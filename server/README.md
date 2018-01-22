@@ -1,6 +1,6 @@
 # hades server
 
-## Installation
+## Build
 ```
 go get github.com/wybiral/hades/server
 go build -o hades-server github.com/wybiral/hades/server
