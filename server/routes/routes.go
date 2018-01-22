@@ -8,18 +8,8 @@ import (
 	"net/http"
 )
 
-type AppHandler func(*app.App, http.ResponseWriter, *http.Request)
-
-func appMiddleware(a *app.App) func(handler AppHandler) http.HandlerFunc {
-	return func(handler AppHandler) http.HandlerFunc {
-		return func(w http.ResponseWriter, r *http.Request) {
-			handler(a, w, r)
-		}
-	}
-}
-
 func NewRouter(a *app.App) *mux.Router {
-	withApp := appMiddleware(a)
+	withApp := AppMiddleware(a)
 	r := mux.NewRouter().StrictSlash(true)
 	r.HandleFunc("/", withApp(indexHandler)).Methods("GET")
 	r.HandleFunc("/{key}", withApp(daemonGetHandler)).Methods("GET")
