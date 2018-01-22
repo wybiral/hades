@@ -2,20 +2,90 @@ package main
 
 import (
 	"crypto/rand"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"github.com/google/shlex"
 	"github.com/gorilla/mux"
+	_ "github.com/mattn/go-sqlite3"
 	"log"
 	"net/http"
+	"os"
 	"os/exec"
 	"sync"
 )
 
+type Daemon struct {
+	Key     string `json:"key"`
+	Cmd     string `json:"cmd"`
+	Running bool   `json:"running"`
+}
+
 type App struct {
 	mutex   *sync.RWMutex
-	Daemons map[string]*Daemon `json:"daemons"`
+	DB      *sql.DB
+	Running map[string]chan struct{}
+}
+
+func NewApp(dbPath string) (*App, error) {
+	_, err := os.Stat(dbPath)
+	create := false
+	if err != nil {
+		if os.IsNotExist(err) {
+			create = true
+		} else {
+			return nil, err
+		}
+	}
+	db, err := sql.Open("sqlite3", dbPath)
+	if err != nil {
+		return nil, err
+	}
+	if create {
+		_, err = db.Exec(`
+			create table Daemon (
+				key text not null primary key,
+				cmd text not null,
+				running int not null
+			);
+		`)
+		if err != nil {
+			return nil, err
+		}
+	}
+	app := &App{
+		mutex:   &sync.RWMutex{},
+		DB:      db,
+		Running: make(map[string]chan struct{}),
+	}
+	running, err := app.getRunning()
+	if err != nil {
+		return nil, err
+	}
+	for _, key := range running {
+		app.StartDaemon(key)
+	}
+	return app, nil
+}
+
+func (app *App) getRunning() ([]string, error) {
+	db := app.DB
+	rows, err := db.Query("select key from Daemon where running == 1")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	keys := make([]string, 0)
+	for rows.Next() {
+		var key string
+		err = rows.Scan(&key)
+		if err != nil {
+			return nil, err
+		}
+		keys = append(keys, key)
+	}
+	return keys, nil
 }
 
 func createKey() (string, error) {
@@ -31,65 +101,65 @@ func createKey() (string, error) {
 	return base64.RawURLEncoding.EncodeToString(data), nil
 }
 
-func (app *App) NewDaemon(cmd string) (*Daemon, error) {
+func (app *App) GetDaemon(key string) (*Daemon, error) {
+	var cmd string
+	var running int
+	db := app.DB
+	row := db.QueryRow("select cmd, running from Daemon where key = ?", key)
+	err := row.Scan(&cmd, &running)
+	if err != nil {
+		return nil, err
+	}
+	return &Daemon{Key: key, Cmd: cmd, Running: running != 0}, nil
+}
+
+func (app *App) CreateDaemon(cmd string) (string, error) {
 	app.mutex.Lock()
 	defer app.mutex.Unlock()
-	var key string
-	var err error
-	for {
-		key, err = createKey()
-		if err != nil {
-			return nil, err
-		}
-		_, exists := app.Daemons[key]
-		if !exists {
-			break
-		}
+	key, err := createKey()
+	if err != nil {
+		return "", err
 	}
-	daemon := &Daemon{
-		Key:     key,
-		Cmd:     cmd,
-		mutex:   &sync.RWMutex{},
-		Running: false,
+	db := app.DB
+	_, err = db.Exec("insert into Daemon (key, cmd, running) values (?, ?, 0)", key, cmd)
+	if err != nil {
+		return "", err
 	}
-	app.Daemons[key] = daemon
-	return daemon, nil
+	return key, nil
 }
 
-func (app *App) GetDaemon(key string) (*Daemon, error) {
-	daemon, exists := app.Daemons[key]
-	if !exists {
-		return nil, errors.New("GetDaemon: key not found")
+func (app *App) StartDaemon(key string) error {
+	app.mutex.Lock()
+	defer app.mutex.Unlock()
+	_, exists := app.Running[key]
+	if exists {
+		return errors.New("start: already running")
 	}
-	return daemon, nil
+	db := app.DB
+	_, err := db.Exec("update Daemon set running = 1 where key = ?", key)
+	if err != nil {
+		return err
+	}
+	stop := make(chan struct{}, 1)
+	app.Running[key] = stop
+	go runLoop(app, key, stop)
+	return nil
 }
 
-type Daemon struct {
-	Key     string        `json:"key"`
-	Cmd     string        `json:"cmd"`
-	mutex   *sync.RWMutex // locks Running/stop
-	Running bool          `json:"running"`
-	stop    chan struct{}
-}
-
-func (d *Daemon) Start() {
-	d.mutex.Lock()
-	defer d.mutex.Unlock()
-	if d.Running {
+func runLoop(app *App, key string, stop chan struct{}) {
+	defer func() {
+		app.mutex.Lock()
+		defer app.mutex.Unlock()
+		delete(app.Running, key)
+	}()
+	var command string
+	db := app.DB
+	row := db.QueryRow("select cmd from Daemon where key = ?", key)
+	err := row.Scan(&command)
+	if err != nil {
 		return
 	}
-	d.Running = true
-	d.stop = make(chan struct{}, 1)
-	go d.runLoop()
-}
-
-func (d *Daemon) runLoop() {
-	defer func() {
-		d.mutex.Lock()
-		defer d.mutex.Unlock()
-		d.Running = false
-	}()
-	parts, err := shlex.Split(d.Cmd)
+	parts, err := shlex.Split(command)
 	if err != nil {
 		return
 	}
@@ -104,7 +174,7 @@ func (d *Daemon) runLoop() {
 			done <- cmd.Wait()
 		}()
 		select {
-		case <-d.stop:
+		case <-stop:
 			_ = cmd.Process.Kill()
 			return
 		case <-done:
@@ -113,23 +183,31 @@ func (d *Daemon) runLoop() {
 	}
 }
 
-func (d *Daemon) Stop() {
-	d.mutex.RLock()
-	defer d.mutex.RUnlock()
-	if d.Running {
-		select {
-		case d.stop <- struct{}{}:
-			return
-		default:
-			return
-		}
+func (app *App) StopDaemon(key string) error {
+	app.mutex.Lock()
+	defer app.mutex.Unlock()
+	stop, exists := app.Running[key]
+	if !exists {
+		return errors.New("stop: not started")
+	}
+	defer func() {
+		delete(app.Running, key)
+		db := app.DB
+		db.Exec("update Daemon set running = 0 where key = ?", key)
+	}()
+	select {
+	case stop <- struct{}{}:
+		return nil
+	default:
+		return nil
 	}
 }
 
 func main() {
-	app := &App{
-		mutex:   &sync.RWMutex{},
-		Daemons: make(map[string]*Daemon),
+	app, err := NewApp("app.db")
+	if err != nil {
+		log.Println(err)
+		return
 	}
 	r := mux.NewRouter().StrictSlash(true)
 	r.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -149,7 +227,7 @@ func main() {
 	}).Methods("POST")
 	addr := "127.0.0.1:8080"
 	log.Println("Serving at", addr)
-	err := http.ListenAndServe(addr, r)
+	err = http.ListenAndServe(addr, r)
 	if err != nil {
 		log.Println(err)
 	}
@@ -183,11 +261,10 @@ func daemonStartHandler(app *App, w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	vars := mux.Vars(r)
 	key := vars["key"]
-	daemon, err := app.GetDaemon(key)
+	err := app.StartDaemon(key)
 	if err != nil {
 		return
 	}
-	daemon.Start()
 	encoder := json.NewEncoder(w)
 	err = encoder.Encode("OK")
 	if err != nil {
@@ -199,11 +276,10 @@ func daemonStopHandler(app *App, w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	vars := mux.Vars(r)
 	key := vars["key"]
-	daemon, err := app.GetDaemon(key)
+	err := app.StopDaemon(key)
 	if err != nil {
 		return
 	}
-	daemon.Stop()
 	encoder := json.NewEncoder(w)
 	err = encoder.Encode("OK")
 	if err != nil {
@@ -217,8 +293,14 @@ func addPostHandler(app *App, w http.ResponseWriter, r *http.Request) {
 	if len(cmd) == 0 {
 		return
 	}
-	daemon, err := app.NewDaemon(cmd)
+	key, err := app.CreateDaemon(cmd)
 	if err != nil {
+		log.Println(err)
+		return
+	}
+	daemon, err := app.GetDaemon(key)
+	if err != nil {
+		log.Println(err)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
