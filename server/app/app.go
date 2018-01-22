@@ -14,8 +14,8 @@ import (
 )
 
 type App struct {
-	mutex   *sync.RWMutex
-	db      *sql.DB
+	mutex *sync.RWMutex
+	db    *sql.DB
 	// "stop signal" channels for running daemons
 	running map[string]chan struct{}
 }
