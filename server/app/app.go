@@ -14,8 +14,8 @@ import (
 
 type App struct {
 	mutex   *sync.RWMutex
-	DB      *sql.DB
-	Running map[string]chan struct{}
+	db      *sql.DB
+	running map[string]chan struct{}
 }
 
 func NewApp(dbPath string) (*App, error) {
@@ -46,8 +46,8 @@ func NewApp(dbPath string) (*App, error) {
 	}
 	app := &App{
 		mutex:   &sync.RWMutex{},
-		DB:      db,
-		Running: make(map[string]chan struct{}),
+		db:      db,
+		running: make(map[string]chan struct{}),
 	}
 	running, err := app.getRunning()
 	if err != nil {
@@ -60,7 +60,7 @@ func NewApp(dbPath string) (*App, error) {
 }
 
 func (app *App) getRunning() ([]string, error) {
-	db := app.DB
+	db := app.db
 	rows, err := db.Query("select key from Daemon where running == 1")
 	if err != nil {
 		return nil, err
@@ -92,7 +92,7 @@ func createKey() (string, error) {
 }
 
 func (app *App) GetDaemons() ([]*types.Daemon, error) {
-	db := app.DB
+	db := app.db
 	rows, err := db.Query("select key, cmd, running from Daemon")
 	if err != nil {
 		return nil, err
@@ -119,7 +119,7 @@ func (app *App) GetDaemons() ([]*types.Daemon, error) {
 func (app *App) GetDaemon(key string) (*types.Daemon, error) {
 	var cmd string
 	var running int
-	db := app.DB
+	db := app.db
 	row := db.QueryRow("select cmd, running from Daemon where key = ?", key)
 	err := row.Scan(&cmd, &running)
 	if err != nil {
@@ -135,7 +135,7 @@ func (app *App) CreateDaemon(cmd string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	db := app.DB
+	db := app.db
 	_, err = db.Exec("insert into Daemon (key, cmd, running) values (?, ?, 0)", key, cmd)
 	if err != nil {
 		return "", err
@@ -146,17 +146,17 @@ func (app *App) CreateDaemon(cmd string) (string, error) {
 func (app *App) StartDaemon(key string) error {
 	app.mutex.Lock()
 	defer app.mutex.Unlock()
-	_, exists := app.Running[key]
+	_, exists := app.running[key]
 	if exists {
 		return errors.New("start: already running")
 	}
-	db := app.DB
+	db := app.db
 	_, err := db.Exec("update Daemon set running = 1 where key = ?", key)
 	if err != nil {
 		return err
 	}
 	stop := make(chan struct{}, 1)
-	app.Running[key] = stop
+	app.running[key] = stop
 	go runLoop(app, key, stop)
 	return nil
 }
@@ -165,10 +165,10 @@ func runLoop(app *App, key string, stop chan struct{}) {
 	defer func() {
 		app.mutex.Lock()
 		defer app.mutex.Unlock()
-		delete(app.Running, key)
+		delete(app.running, key)
 	}()
 	var command string
-	db := app.DB
+	db := app.db
 	row := db.QueryRow("select cmd from Daemon where key = ?", key)
 	err := row.Scan(&command)
 	if err != nil {
@@ -201,13 +201,13 @@ func runLoop(app *App, key string, stop chan struct{}) {
 func (app *App) StopDaemon(key string) error {
 	app.mutex.Lock()
 	defer app.mutex.Unlock()
-	stop, exists := app.Running[key]
+	stop, exists := app.running[key]
 	if !exists {
 		return errors.New("stop: not started")
 	}
 	defer func() {
-		delete(app.Running, key)
-		db := app.DB
+		delete(app.running, key)
+		db := app.db
 		db.Exec("update Daemon set running = 0 where key = ?", key)
 	}()
 	select {
