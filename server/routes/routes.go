@@ -84,16 +84,12 @@ func daemonStopHandler(a *app.App, w http.ResponseWriter, r *http.Request) {
 // Add new daemon from cmd string
 func addPostHandler(a *app.App, w http.ResponseWriter, r *http.Request) {
 	r.ParseForm()
+	key := r.PostForm.Get("key")
 	cmd := r.PostForm.Get("cmd")
 	if len(cmd) == 0 {
 		return
 	}
-	key, err := a.CreateDaemon(cmd)
-	if err != nil {
-		log.Println(err)
-		return
-	}
-	daemon, err := a.GetDaemon(key)
+	daemon, err := a.CreateDaemon(key, cmd)
 	if err != nil {
 		log.Println(err)
 		return

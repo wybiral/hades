@@ -1,22 +1,29 @@
 package app
 
 import (
+	"log"
 	"crypto/rand"
 	"database/sql"
 	"encoding/base64"
 	"errors"
 	"github.com/google/shlex"
-	_ "github.com/mattn/go-sqlite3"
+	"github.com/mattn/go-sqlite3"
 	"github.com/wybiral/hades/types"
 	"os"
 	"os/exec"
 	"sync"
 )
 
+var (
+	ErrInitDatabase = errors.New("app: error initializing db")
+	ErrKeyGeneration = errors.New("app: unable to generate random key")
+	ErrKeyNotUnique = errors.New("app: key not unique")
+)
+
 type App struct {
 	mutex *sync.RWMutex
 	db    *sql.DB
-	// "stop signal" channels for running daemons
+	// key => "stop signal" channels for running daemons
 	running map[string]chan struct{}
 }
 
@@ -28,12 +35,12 @@ func NewApp(dbPath string) (*App, error) {
 			// Keep track if db file doesn't exist
 			create = true
 		} else {
-			return nil, err
+			return nil, ErrInitDatabase
 		}
 	}
 	db, err := sql.Open("sqlite3", dbPath)
 	if err != nil {
-		return nil, err
+		return nil, ErrInitDatabase
 	}
 	if create {
 		// Create tables if new db file
@@ -45,7 +52,7 @@ func NewApp(dbPath string) (*App, error) {
 			);
 		`)
 		if err != nil {
-			return nil, err
+			return nil, ErrInitDatabase
 		}
 	}
 	app := &App{
@@ -85,15 +92,15 @@ func (app *App) getRunning() ([]string, error) {
 }
 
 // Create a new daemon key
-func createKey() (string, error) {
+func generateKey() (string, error) {
 	n := 8
 	data := make([]byte, n)
 	_n, err := rand.Read(data)
 	if err != nil {
-		return "", err
+		return "", ErrKeyGeneration
 	}
 	if _n != n {
-		return "", errors.New("createKey: not enough random")
+		return "", ErrKeyGeneration
 	}
 	return base64.RawURLEncoding.EncodeToString(data), nil
 }
@@ -137,20 +144,47 @@ func (app *App) GetDaemon(key string) (*types.Daemon, error) {
 	return &types.Daemon{Key: key, Cmd: cmd, Running: running != 0}, nil
 }
 
-// Create a new daemon from a cmd string, return key
-func (app *App) CreateDaemon(cmd string) (string, error) {
-	app.mutex.Lock()
-	defer app.mutex.Unlock()
-	key, err := createKey()
-	if err != nil {
-		return "", err
+// Create a new daemon from a key, cmd strings
+func (app *App) CreateDaemon(key string, cmd string) (*types.Daemon, error) {
+	if len(key) == 0 {
+		return app.createDaemonKey(cmd)
 	}
 	db := app.db
-	_, err = db.Exec("insert into Daemon (key, cmd, running) values (?, ?, 0)", key, cmd)
-	if err != nil {
-		return "", err
+	_, err := db.Exec(`
+		insert into Daemon (key, cmd, running)
+		values (?, ?, 0)
+	`, key, cmd)
+	sqliteErr, ok := err.(sqlite3.Error)
+	if !ok {
+		return nil, err
 	}
-	return key, nil
+	if sqliteErr.ExtendedCode == sqlite3.ErrConstraintPrimaryKey {
+		return nil, ErrKeyNotUnique
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &types.Daemon{Key: key, Cmd: cmd, Running: false}, nil
+}
+
+// When CreateDaemon is called with empty key, this will generate one
+// XXX: Bad news when keyspace fills up. Consider retry limit.
+func (app *App) createDaemonKey(cmd string) (*types.Daemon, error) {
+	for {
+		key, err := generateKey()
+		if err != nil {
+			return nil, err
+		}
+		daemon, err := app.CreateDaemon(key, cmd)
+		if err == ErrKeyNotUnique {
+			// Key isn't unique, try again
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		return daemon, nil
+	}
 }
 
 // Start daemon (by key)
