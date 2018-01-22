@@ -101,6 +101,32 @@ func createKey() (string, error) {
 	return base64.RawURLEncoding.EncodeToString(data), nil
 }
 
+func (app *App) GetDaemons() ([]*Daemon, error) {
+	db := app.DB
+	rows, err := db.Query("select key, cmd, running from Daemon")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	daemons := make([]*Daemon, 0)
+	for rows.Next() {
+		var key string
+		var cmd string
+		var running int
+		err = rows.Scan(&key, &cmd, &running)
+		if err != nil {
+			return nil, err
+		}
+		daemons = append(daemons, &Daemon{
+			Key: key,
+			Cmd: cmd,
+			Running: running == 1,
+		})
+	}
+	return daemons, nil
+}
+
+
 func (app *App) GetDaemon(key string) (*Daemon, error) {
 	var cmd string
 	var running int
@@ -235,8 +261,12 @@ func main() {
 
 func indexHandler(app *App, w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
+	daemons, err := app.GetDaemons()
+	if err != nil {
+		return
+	}
 	encoder := json.NewEncoder(w)
-	err := encoder.Encode(app)
+	err = encoder.Encode(daemons)
 	if err != nil {
 		return
 	}
