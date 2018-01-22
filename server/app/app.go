@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"github.com/google/shlex"
+	_ "github.com/mattn/go-sqlite3"
 	"github.com/wybiral/hades/types"
 	"os"
 	"os/exec"
