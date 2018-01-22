@@ -16,6 +16,7 @@ import (
 type App struct {
 	mutex   *sync.RWMutex
 	db      *sql.DB
+	// "stop signal" channels for running daemons
 	running map[string]chan struct{}
 }
 
@@ -24,6 +25,7 @@ func NewApp(dbPath string) (*App, error) {
 	create := false
 	if err != nil {
 		if os.IsNotExist(err) {
+			// Keep track if db file doesn't exist
 			create = true
 		} else {
 			return nil, err
@@ -34,6 +36,7 @@ func NewApp(dbPath string) (*App, error) {
 		return nil, err
 	}
 	if create {
+		// Create tables if new db file
 		_, err = db.Exec(`
 			create table Daemon (
 				key text not null primary key,
@@ -50,6 +53,7 @@ func NewApp(dbPath string) (*App, error) {
 		db:      db,
 		running: make(map[string]chan struct{}),
 	}
+	// Start all running daemons
 	running, err := app.getRunning()
 	if err != nil {
 		return nil, err
@@ -60,6 +64,7 @@ func NewApp(dbPath string) (*App, error) {
 	return app, nil
 }
 
+// Return array of keys for running daemons
 func (app *App) getRunning() ([]string, error) {
 	db := app.db
 	rows, err := db.Query("select key from Daemon where running == 1")
@@ -79,6 +84,7 @@ func (app *App) getRunning() ([]string, error) {
 	return keys, nil
 }
 
+// Create a new daemon key
 func createKey() (string, error) {
 	n := 8
 	data := make([]byte, n)
@@ -92,6 +98,7 @@ func createKey() (string, error) {
 	return base64.RawURLEncoding.EncodeToString(data), nil
 }
 
+// Return array of all daemons
 func (app *App) GetDaemons() ([]*types.Daemon, error) {
 	db := app.db
 	rows, err := db.Query("select key, cmd, running from Daemon")
@@ -117,6 +124,7 @@ func (app *App) GetDaemons() ([]*types.Daemon, error) {
 	return daemons, nil
 }
 
+// Return a single daemon (by key)
 func (app *App) GetDaemon(key string) (*types.Daemon, error) {
 	var cmd string
 	var running int
@@ -129,6 +137,7 @@ func (app *App) GetDaemon(key string) (*types.Daemon, error) {
 	return &types.Daemon{Key: key, Cmd: cmd, Running: running != 0}, nil
 }
 
+// Create a new daemon from a cmd string, return key
 func (app *App) CreateDaemon(cmd string) (string, error) {
 	app.mutex.Lock()
 	defer app.mutex.Unlock()
@@ -144,6 +153,7 @@ func (app *App) CreateDaemon(cmd string) (string, error) {
 	return key, nil
 }
 
+// Start daemon (by key)
 func (app *App) StartDaemon(key string) error {
 	app.mutex.Lock()
 	defer app.mutex.Unlock()
@@ -162,6 +172,7 @@ func (app *App) StartDaemon(key string) error {
 	return nil
 }
 
+// Run daemon (by key) repeatedly until stop channel signal
 func runLoop(app *App, key string, stop chan struct{}) {
 	defer func() {
 		app.mutex.Lock()
@@ -194,11 +205,12 @@ func runLoop(app *App, key string, stop chan struct{}) {
 			_ = cmd.Process.Kill()
 			return
 		case <-done:
-			return
+			continue
 		}
 	}
 }
 
+// Stop a running daemon (by key)
 func (app *App) StopDaemon(key string) error {
 	app.mutex.Lock()
 	defer app.mutex.Unlock()
