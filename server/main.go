@@ -9,18 +9,13 @@ import (
 	"github.com/google/shlex"
 	"github.com/gorilla/mux"
 	_ "github.com/mattn/go-sqlite3"
+	"github.com/wybiral/hades/types"
 	"log"
 	"net/http"
 	"os"
 	"os/exec"
 	"sync"
 )
-
-type Daemon struct {
-	Key     string `json:"key"`
-	Cmd     string `json:"cmd"`
-	Running bool   `json:"running"`
-}
 
 type App struct {
 	mutex   *sync.RWMutex
@@ -101,14 +96,14 @@ func createKey() (string, error) {
 	return base64.RawURLEncoding.EncodeToString(data), nil
 }
 
-func (app *App) GetDaemons() ([]*Daemon, error) {
+func (app *App) GetDaemons() ([]*types.Daemon, error) {
 	db := app.DB
 	rows, err := db.Query("select key, cmd, running from Daemon")
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	daemons := make([]*Daemon, 0)
+	daemons := make([]*types.Daemon, 0)
 	for rows.Next() {
 		var key string
 		var cmd string
@@ -117,17 +112,16 @@ func (app *App) GetDaemons() ([]*Daemon, error) {
 		if err != nil {
 			return nil, err
 		}
-		daemons = append(daemons, &Daemon{
-			Key: key,
-			Cmd: cmd,
+		daemons = append(daemons, &types.Daemon{
+			Key:     key,
+			Cmd:     cmd,
 			Running: running == 1,
 		})
 	}
 	return daemons, nil
 }
 
-
-func (app *App) GetDaemon(key string) (*Daemon, error) {
+func (app *App) GetDaemon(key string) (*types.Daemon, error) {
 	var cmd string
 	var running int
 	db := app.DB
@@ -136,7 +130,7 @@ func (app *App) GetDaemon(key string) (*Daemon, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Daemon{Key: key, Cmd: cmd, Running: running != 0}, nil
+	return &types.Daemon{Key: key, Cmd: cmd, Running: running != 0}, nil
 }
 
 func (app *App) CreateDaemon(cmd string) (string, error) {
