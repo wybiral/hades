@@ -19,6 +19,7 @@ func NewRouter(a *app.App) *mux.Router {
 	return r
 }
 
+// Respond with JSON list of daemons
 func indexHandler(a *app.App, w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	daemons, err := a.GetDaemons()
@@ -32,6 +33,7 @@ func indexHandler(a *app.App, w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// Respond with JSON object for one daemon
 func daemonGetHandler(a *app.App, w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	vars := mux.Vars(r)
@@ -47,6 +49,7 @@ func daemonGetHandler(a *app.App, w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// Start one daemon
 func daemonStartHandler(a *app.App, w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	vars := mux.Vars(r)
@@ -62,6 +65,7 @@ func daemonStartHandler(a *app.App, w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// Stop one daemon
 func daemonStopHandler(a *app.App, w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	vars := mux.Vars(r)
@@ -77,6 +81,7 @@ func daemonStopHandler(a *app.App, w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// Add new daemon from cmd string
 func addPostHandler(a *app.App, w http.ResponseWriter, r *http.Request) {
 	r.ParseForm()
 	cmd := r.PostForm.Get("cmd")
