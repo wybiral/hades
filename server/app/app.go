@@ -10,6 +10,7 @@ import (
 	"github.com/wybiral/hades/types"
 	"os"
 	"os/exec"
+	"syscall"
 	"sync"
 )
 
@@ -247,23 +248,17 @@ func runLoop(app *App, key string, stop chan struct{}) {
 	}
 	for {
 		cmd := exec.Command(parts[0], parts[1:]...)
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 		cmd.Dir = directory
 		err := cmd.Start()
 		if err != nil {
 			continue
 		}
-		done := make(chan error, 1)
 		go func() {
-			done <- cmd.Wait()
+			<-stop
+			syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 		}()
-		// Use select to block until done or stop channel signal
-		select {
-		case <-stop:
-			_ = cmd.Process.Kill()
-			return
-		case <-done:
-			continue
-		}
+		cmd.Wait()
 	}
 }
 
@@ -276,6 +271,7 @@ func (app *App) StopDaemon(key string) error {
 		return ErrNotRunning
 	}
 	defer func() {
+		close(app.running[key])
 		delete(app.running, key)
 		db := app.db
 		db.Exec("update Daemon set running = 0 where key = ?", key)
