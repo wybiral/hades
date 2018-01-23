@@ -18,7 +18,7 @@ func jsonError(w http.ResponseWriter, msg string) {
 	encoder := json.NewEncoder(w)
 	err := encoder.Encode(struct {
 		Error string `json:"error"`
-	} {
+	}{
 		Error: msg,
 	})
 	if err != nil {

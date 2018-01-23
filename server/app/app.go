@@ -14,12 +14,12 @@ import (
 )
 
 var (
-	ErrNotFound = errors.New("app: not found")
-	ErrInitDatabase = errors.New("app: error initializing db")
-	ErrKeyGeneration = errors.New("app: unable to generate random key")
-	ErrKeyNotUnique = errors.New("app: key not unique")
+	ErrNotFound       = errors.New("app: not found")
+	ErrInitDatabase   = errors.New("app: error initializing db")
+	ErrKeyGeneration  = errors.New("app: unable to generate random key")
+	ErrKeyNotUnique   = errors.New("app: key not unique")
 	ErrAlreadyRunning = errors.New("app: already running")
-	ErrNotRunning = errors.New("app: not running")
+	ErrNotRunning     = errors.New("app: not running")
 )
 
 type App struct {
@@ -50,6 +50,7 @@ func NewApp(dbPath string) (*App, error) {
 			create table Daemon (
 				key text not null primary key,
 				cmd text not null,
+				dir text not null,
 				running int not null
 			);
 		`)
@@ -110,7 +111,7 @@ func generateKey() (string, error) {
 // Return array of all daemons
 func (app *App) GetDaemons() ([]*types.Daemon, error) {
 	db := app.db
-	rows, err := db.Query("select key, cmd, running from Daemon")
+	rows, err := db.Query("select key, cmd, dir, running from Daemon")
 	if err != nil {
 		return nil, err
 	}
@@ -119,14 +120,16 @@ func (app *App) GetDaemons() ([]*types.Daemon, error) {
 	for rows.Next() {
 		var key string
 		var cmd string
+		var dir string
 		var running int
-		err = rows.Scan(&key, &cmd, &running)
+		err = rows.Scan(&key, &cmd, &dir, &running)
 		if err != nil {
 			return nil, err
 		}
 		daemons = append(daemons, &types.Daemon{
 			Key:     key,
 			Cmd:     cmd,
+			Dir:     dir,
 			Running: running == 1,
 		})
 	}
@@ -136,28 +139,34 @@ func (app *App) GetDaemons() ([]*types.Daemon, error) {
 // Return a single daemon (by key)
 func (app *App) GetDaemon(key string) (*types.Daemon, error) {
 	var cmd string
+	var dir string
 	var running int
 	db := app.db
-	row := db.QueryRow("select cmd, running from Daemon where key = ?", key)
-	err := row.Scan(&cmd, &running)
+	row := db.QueryRow("select cmd, dir, running from Daemon where key = ?", key)
+	err := row.Scan(&cmd, &dir, &running)
 	if err == sql.ErrNoRows {
 		return nil, ErrNotFound
 	} else if err != nil {
 		return nil, err
 	}
-	return &types.Daemon{Key: key, Cmd: cmd, Running: running != 0}, nil
+	return &types.Daemon{
+		Key: key,
+		Cmd: cmd,
+		Dir: dir,
+		Running: running != 0,
+	}, nil
 }
 
 // Create a new daemon from a key, cmd strings
-func (app *App) CreateDaemon(key string, cmd string) (*types.Daemon, error) {
+func (app *App) CreateDaemon(key, cmd, dir string) (*types.Daemon, error) {
 	if len(key) == 0 {
-		return app.createDaemonKey(cmd)
+		return app.createDaemonKey(cmd, dir)
 	}
 	db := app.db
 	_, err := db.Exec(`
-		insert into Daemon (key, cmd, running)
-		values (?, ?, 0)
-	`, key, cmd)
+		insert into Daemon (key, cmd, dir, running)
+		values (?, ?, ?, 0)
+	`, key, cmd, dir)
 	if err != nil {
 		sqliteErr, ok := err.(sqlite3.Error)
 		if !ok {
@@ -168,18 +177,18 @@ func (app *App) CreateDaemon(key string, cmd string) (*types.Daemon, error) {
 		}
 		return nil, err
 	}
-	return &types.Daemon{Key: key, Cmd: cmd, Running: false}, nil
+	return &types.Daemon{Key: key, Cmd: cmd, Dir: dir, Running: false}, nil
 }
 
 // When CreateDaemon is called with empty key, this will generate one
 // XXX: Bad news when keyspace fills up. Consider retry limit.
-func (app *App) createDaemonKey(cmd string) (*types.Daemon, error) {
+func (app *App) createDaemonKey(cmd, dir string) (*types.Daemon, error) {
 	for {
 		key, err := generateKey()
 		if err != nil {
 			return nil, err
 		}
-		daemon, err := app.CreateDaemon(key, cmd)
+		daemon, err := app.CreateDaemon(key, cmd, dir)
 		if err == ErrKeyNotUnique {
 			// Key isn't unique, try again
 			continue
@@ -225,9 +234,10 @@ func runLoop(app *App, key string, stop chan struct{}) {
 		delete(app.running, key)
 	}()
 	var command string
+	var directory string
 	db := app.db
-	row := db.QueryRow("select cmd from Daemon where key = ?", key)
-	err := row.Scan(&command)
+	row := db.QueryRow("select cmd, dir from Daemon where key = ?", key)
+	err := row.Scan(&command, &directory)
 	if err != nil {
 		return
 	}
@@ -237,6 +247,7 @@ func runLoop(app *App, key string, stop chan struct{}) {
 	}
 	for {
 		cmd := exec.Command(parts[0], parts[1:]...)
+		cmd.Dir = directory
 		err := cmd.Start()
 		if err != nil {
 			continue
@@ -245,6 +256,7 @@ func runLoop(app *App, key string, stop chan struct{}) {
 		go func() {
 			done <- cmd.Wait()
 		}()
+		// Use select to block until done or stop channel signal
 		select {
 		case <-stop:
 			_ = cmd.Process.Kill()

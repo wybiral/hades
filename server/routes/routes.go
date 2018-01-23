@@ -35,12 +35,13 @@ func indexPostHandler(a *app.App, w http.ResponseWriter, r *http.Request) {
 	r.ParseForm()
 	key := r.PostForm.Get("key")
 	cmd := r.PostForm.Get("cmd")
+	dir := r.PostForm.Get("dir")
 	if len(cmd) == 0 {
 		w.WriteHeader(http.StatusBadRequest)
 		jsonError(w, "cmd required")
 		return
 	}
-	daemon, err := a.CreateDaemon(key, cmd)
+	daemon, err := a.CreateDaemon(key, cmd, dir)
 	if err == app.ErrKeyNotUnique {
 		w.WriteHeader(http.StatusBadRequest)
 		jsonError(w, "key already exists")
