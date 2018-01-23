@@ -1,7 +1,6 @@
 package app
 
 import (
-	"log"
 	"crypto/rand"
 	"database/sql"
 	"encoding/base64"
@@ -15,9 +14,12 @@ import (
 )
 
 var (
+	ErrNotFound = errors.New("app: not found")
 	ErrInitDatabase = errors.New("app: error initializing db")
 	ErrKeyGeneration = errors.New("app: unable to generate random key")
 	ErrKeyNotUnique = errors.New("app: key not unique")
+	ErrAlreadyRunning = errors.New("app: already running")
+	ErrNotRunning = errors.New("app: not running")
 )
 
 type App struct {
@@ -138,7 +140,9 @@ func (app *App) GetDaemon(key string) (*types.Daemon, error) {
 	db := app.db
 	row := db.QueryRow("select cmd, running from Daemon where key = ?", key)
 	err := row.Scan(&cmd, &running)
-	if err != nil {
+	if err == sql.ErrNoRows {
+		return nil, ErrNotFound
+	} else if err != nil {
 		return nil, err
 	}
 	return &types.Daemon{Key: key, Cmd: cmd, Running: running != 0}, nil
@@ -154,14 +158,14 @@ func (app *App) CreateDaemon(key string, cmd string) (*types.Daemon, error) {
 		insert into Daemon (key, cmd, running)
 		values (?, ?, 0)
 	`, key, cmd)
-	sqliteErr, ok := err.(sqlite3.Error)
-	if !ok {
-		return nil, err
-	}
-	if sqliteErr.ExtendedCode == sqlite3.ErrConstraintPrimaryKey {
-		return nil, ErrKeyNotUnique
-	}
 	if err != nil {
+		sqliteErr, ok := err.(sqlite3.Error)
+		if !ok {
+			return nil, err
+		}
+		if sqliteErr.ExtendedCode == sqlite3.ErrConstraintPrimaryKey {
+			return nil, ErrKeyNotUnique
+		}
 		return nil, err
 	}
 	return &types.Daemon{Key: key, Cmd: cmd, Running: false}, nil
@@ -193,12 +197,19 @@ func (app *App) StartDaemon(key string) error {
 	defer app.mutex.Unlock()
 	_, exists := app.running[key]
 	if exists {
-		return errors.New("start: already running")
+		return ErrAlreadyRunning
 	}
 	db := app.db
-	_, err := db.Exec("update Daemon set running = 1 where key = ?", key)
+	res, err := db.Exec("update Daemon set running = 1 where key = ?", key)
 	if err != nil {
 		return err
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return ErrNotFound
 	}
 	stop := make(chan struct{}, 1)
 	app.running[key] = stop
@@ -250,7 +261,7 @@ func (app *App) StopDaemon(key string) error {
 	defer app.mutex.Unlock()
 	stop, exists := app.running[key]
 	if !exists {
-		return errors.New("stop: not started")
+		return ErrNotRunning
 	}
 	defer func() {
 		delete(app.running, key)
