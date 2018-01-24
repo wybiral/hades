@@ -265,8 +265,8 @@ func runLoop(app *App, key string, kill chan bool) {
 		}()
 		cmd.Wait()
 		app.mutex.RLock()
-		defer app.mutex.RUnlock()
 		_, ok := app.running[key]
+		app.mutex.RUnlock()
 		if !ok {
 			return
 		}
