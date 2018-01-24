@@ -13,7 +13,7 @@ func NewRouter(a *app.App) *mux.Router {
 	r.HandleFunc("/", withApp(indexPostHandler)).Methods("POST")
 	r.HandleFunc("/{key}", withApp(daemonGetHandler)).Methods("GET")
 	r.HandleFunc("/{key}/start", withApp(daemonStartHandler))
-	r.HandleFunc("/{key}/stop", withApp(daemonStopHandler))
+	r.HandleFunc("/{key}/kill", withApp(daemonKillHandler))
 	return r
 }
 
@@ -94,12 +94,12 @@ func daemonStartHandler(a *app.App, w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, struct{}{})
 }
 
-// Stop one daemon
-func daemonStopHandler(a *app.App, w http.ResponseWriter, r *http.Request) {
+// Kill one daemon
+func daemonKillHandler(a *app.App, w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	vars := mux.Vars(r)
 	key := vars["key"]
-	err := a.StopDaemon(key)
+	err := a.KillDaemon(key)
 	if err == app.ErrNotRunning {
 		w.WriteHeader(http.StatusBadRequest)
 		jsonError(w, "not running")

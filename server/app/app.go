@@ -27,7 +27,7 @@ type App struct {
 	mutex *sync.RWMutex
 	db    *sql.DB
 	// key => "stop signal" channels for running daemons
-	running map[string]chan struct{}
+	running map[string]chan bool
 }
 
 func NewApp(dbPath string) (*App, error) {
@@ -62,7 +62,7 @@ func NewApp(dbPath string) (*App, error) {
 	app := &App{
 		mutex:   &sync.RWMutex{},
 		db:      db,
-		running: make(map[string]chan struct{}),
+		running: make(map[string]chan bool),
 	}
 	// Start all running daemons
 	running, err := app.getRunning()
@@ -221,18 +221,17 @@ func (app *App) StartDaemon(key string) error {
 	if rows == 0 {
 		return ErrNotFound
 	}
-	stop := make(chan struct{}, 1)
-	app.running[key] = stop
-	go runLoop(app, key, stop)
+	kill := make(chan bool, 1)
+	app.running[key] = kill
+	go runLoop(app, key, kill)
 	return nil
 }
 
-// Run daemon (by key) repeatedly until stop channel signal
-func runLoop(app *App, key string, stop chan struct{}) {
+// Run daemon (by key) repeatedly until kill channel signal
+func runLoop(app *App, key string, kill chan bool) {
 	defer func() {
-		app.mutex.Lock()
-		defer app.mutex.Unlock()
-		delete(app.running, key)
+		db := app.db
+		db.Exec("update Daemon set running = 0 where key = ?", key)
 	}()
 	var command string
 	var directory string
@@ -250,34 +249,40 @@ func runLoop(app *App, key string, stop chan struct{}) {
 		cmd := exec.Command(parts[0], parts[1:]...)
 		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 		cmd.Dir = directory
+		cmd.Env = os.Environ()
 		err := cmd.Start()
 		if err != nil {
 			continue
 		}
 		go func() {
-			<-stop
+			// Listen for kill signal
+			<-kill
+			app.mutex.Lock()
+			defer app.mutex.Unlock()
+			close(kill)
+			delete(app.running, key)
 			syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 		}()
 		cmd.Wait()
+		app.mutex.RLock()
+		defer app.mutex.RUnlock()
+		_, ok := app.running[key]
+		if !ok {
+			return
+		}
 	}
 }
 
 // Stop a running daemon (by key)
-func (app *App) StopDaemon(key string) error {
-	app.mutex.Lock()
-	defer app.mutex.Unlock()
+func (app *App) KillDaemon(key string) error {
+	app.mutex.RLock()
+	defer app.mutex.RUnlock()
 	stop, exists := app.running[key]
 	if !exists {
 		return ErrNotRunning
 	}
-	defer func() {
-		close(app.running[key])
-		delete(app.running, key)
-		db := app.db
-		db.Exec("update Daemon set running = 0 where key = ?", key)
-	}()
 	select {
-	case stop <- struct{}{}:
+	case stop <- true:
 		return nil
 	default:
 		return nil
