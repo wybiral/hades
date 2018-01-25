@@ -5,12 +5,9 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"errors"
-	"github.com/google/shlex"
 	"github.com/mattn/go-sqlite3"
 	"github.com/wybiral/hades/types"
 	"os"
-	"os/exec"
-	"syscall"
 	"sync"
 )
 
@@ -19,16 +16,25 @@ var (
 	ErrInitDatabase   = errors.New("app: error initializing db")
 	ErrKeyGeneration  = errors.New("app: unable to generate random key")
 	ErrKeyNotUnique   = errors.New("app: key not unique")
-	ErrAlreadyRunning = errors.New("app: already running")
-	ErrNotRunning     = errors.New("app: not running")
+	ErrAlreadyStarted = errors.New("app: already started")
+	ErrNotStarted     = errors.New("app: not started")
 )
 
 type App struct {
-	mutex *sync.RWMutex
-	db    *sql.DB
-	// key => "stop signal" channels for running daemons
-	running map[string]chan bool
+	db          *sql.DB
+	activeMutex *sync.RWMutex
+	active      map[string]*activeDaemon
 }
+
+const schema = `
+create table Daemon (
+	key text not null primary key,
+	cmd text not null,
+	dir text not null,
+	active int not null,
+	status string not null
+);
+`
 
 func NewApp(dbPath string) (*App, error) {
 	_, err := os.Stat(dbPath)
@@ -47,38 +53,38 @@ func NewApp(dbPath string) (*App, error) {
 	}
 	if create {
 		// Create tables if new db file
-		_, err = db.Exec(`
-			create table Daemon (
-				key text not null primary key,
-				cmd text not null,
-				dir text not null,
-				running int not null
-			);
-		`)
+		_, err = db.Exec(schema)
 		if err != nil {
 			return nil, ErrInitDatabase
 		}
 	}
 	app := &App{
-		mutex:   &sync.RWMutex{},
-		db:      db,
-		running: make(map[string]chan bool),
+		db:          db,
+		activeMutex: &sync.RWMutex{},
+		active:      make(map[string]*activeDaemon),
 	}
-	// Start all running daemons
-	running, err := app.getRunning()
+	// Start all active daemons
+	active, err := app.getActive()
 	if err != nil {
 		return nil, err
 	}
-	for _, key := range running {
-		app.StartDaemon(key)
+	for _, key := range active {
+		err := app.StartDaemon(key)
+		if err != nil {
+			return nil, err
+		}
 	}
 	return app, nil
 }
 
 // Return array of keys for running daemons
-func (app *App) getRunning() ([]string, error) {
+func (app *App) getActive() ([]string, error) {
 	db := app.db
-	rows, err := db.Query("select key from Daemon where running == 1")
+	rows, err := db.Query(`
+		select key
+		from Daemon
+		where active == 1
+	`)
 	if err != nil {
 		return nil, err
 	}
@@ -112,7 +118,10 @@ func generateKey() (string, error) {
 // Return array of all daemons
 func (app *App) GetDaemons() ([]*types.Daemon, error) {
 	db := app.db
-	rows, err := db.Query("select key, cmd, dir, running from Daemon")
+	rows, err := db.Query(`
+		select key, cmd, dir, active, status
+		from Daemon
+	`)
 	if err != nil {
 		return nil, err
 	}
@@ -122,16 +131,18 @@ func (app *App) GetDaemons() ([]*types.Daemon, error) {
 		var key string
 		var cmd string
 		var dir string
-		var running int
-		err = rows.Scan(&key, &cmd, &dir, &running)
+		var active int
+		var status string
+		err = rows.Scan(&key, &cmd, &dir, &active, &status)
 		if err != nil {
 			return nil, err
 		}
 		daemons = append(daemons, &types.Daemon{
-			Key:     key,
-			Cmd:     cmd,
-			Dir:     dir,
-			Running: running == 1,
+			Key:    key,
+			Cmd:    cmd,
+			Dir:    dir,
+			Active: active == 1,
+			Status: status,
 		})
 	}
 	return daemons, nil
@@ -141,20 +152,26 @@ func (app *App) GetDaemons() ([]*types.Daemon, error) {
 func (app *App) GetDaemon(key string) (*types.Daemon, error) {
 	var cmd string
 	var dir string
-	var running int
+	var active int
+	var status string
 	db := app.db
-	row := db.QueryRow("select cmd, dir, running from Daemon where key = ?", key)
-	err := row.Scan(&cmd, &dir, &running)
+	row := db.QueryRow(`
+		select cmd, dir, active, status
+		from Daemon
+		where key = ?
+	`, key)
+	err := row.Scan(&cmd, &dir, &active, &status)
 	if err == sql.ErrNoRows {
 		return nil, ErrNotFound
 	} else if err != nil {
 		return nil, err
 	}
 	return &types.Daemon{
-		Key: key,
-		Cmd: cmd,
-		Dir: dir,
-		Running: running != 0,
+		Key:    key,
+		Cmd:    cmd,
+		Dir:    dir,
+		Active: active == 1,
+		Status: status,
 	}, nil
 }
 
@@ -165,8 +182,8 @@ func (app *App) CreateDaemon(key, cmd, dir string) (*types.Daemon, error) {
 	}
 	db := app.db
 	_, err := db.Exec(`
-		insert into Daemon (key, cmd, dir, running)
-		values (?, ?, ?, 0)
+		insert into Daemon (key, cmd, dir, active, status)
+		values (?, ?, ?, 0, "")
 	`, key, cmd, dir)
 	if err != nil {
 		sqliteErr, ok := err.(sqlite3.Error)
@@ -178,7 +195,13 @@ func (app *App) CreateDaemon(key, cmd, dir string) (*types.Daemon, error) {
 		}
 		return nil, err
 	}
-	return &types.Daemon{Key: key, Cmd: cmd, Dir: dir, Running: false}, nil
+	return &types.Daemon{
+		Key:    key,
+		Cmd:    cmd,
+		Dir:    dir,
+		Active: false,
+		Status: "",
+	}, nil
 }
 
 // When CreateDaemon is called with empty key, this will generate one
@@ -203,14 +226,18 @@ func (app *App) createDaemonKey(cmd, dir string) (*types.Daemon, error) {
 
 // Start daemon (by key)
 func (app *App) StartDaemon(key string) error {
-	app.mutex.Lock()
-	defer app.mutex.Unlock()
-	_, exists := app.running[key]
+	app.activeMutex.Lock()
+	defer app.activeMutex.Unlock()
+	_, exists := app.active[key]
 	if exists {
-		return ErrAlreadyRunning
+		return ErrAlreadyStarted
 	}
 	db := app.db
-	res, err := db.Exec("update Daemon set running = 1 where key = ?", key)
+	res, err := db.Exec(`
+		update Daemon
+		set active = 1
+		where key = ?
+	`, key)
 	if err != nil {
 		return err
 	}
@@ -221,70 +248,46 @@ func (app *App) StartDaemon(key string) error {
 	if rows == 0 {
 		return ErrNotFound
 	}
-	kill := make(chan bool, 1)
-	app.running[key] = kill
-	go runLoop(app, key, kill)
+	app.active[key] = newActiveDaemon(app, key)
 	return nil
 }
 
-// Run daemon (by key) repeatedly until kill channel signal
-func runLoop(app *App, key string, kill chan bool) {
-	defer func() {
-		db := app.db
-		db.Exec("update Daemon set running = 0 where key = ?", key)
-	}()
-	var command string
-	var directory string
-	db := app.db
-	row := db.QueryRow("select cmd, dir from Daemon where key = ?", key)
-	err := row.Scan(&command, &directory)
-	if err != nil {
-		return
+func (app *App) getActiveDaemon(key string) (*activeDaemon, error) {
+	app.activeMutex.RLock()
+	defer app.activeMutex.RUnlock()
+	ad, exists := app.active[key]
+	if !exists {
+		return nil, ErrNotStarted
 	}
-	parts, err := shlex.Split(command)
-	if err != nil {
-		return
-	}
-	for {
-		cmd := exec.Command(parts[0], parts[1:]...)
-		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-		cmd.Dir = directory
-		cmd.Env = os.Environ()
-		err := cmd.Start()
-		if err != nil {
-			continue
-		}
-		go func() {
-			// Listen for kill signal
-			<-kill
-			app.mutex.Lock()
-			defer app.mutex.Unlock()
-			close(kill)
-			delete(app.running, key)
-			syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-		}()
-		cmd.Wait()
-		app.mutex.RLock()
-		_, ok := app.running[key]
-		app.mutex.RUnlock()
-		if !ok {
-			return
-		}
-	}
+	return ad, nil
 }
 
-// Stop a running daemon (by key)
+// Send kill signal
 func (app *App) KillDaemon(key string) error {
-	app.mutex.RLock()
-	defer app.mutex.RUnlock()
-	stop, exists := app.running[key]
-	if !exists {
-		return ErrNotRunning
+	ad, err := app.getActiveDaemon(key)
+	if err != nil {
+		return err
 	}
-	select {
-	case stop <- true:
-		return nil
-	default:
-		return nil
+	ad.sigkill()
+	return nil
+}
+
+// Send stop signal
+func (app *App) StopDaemon(key string) error {
+	ad, err := app.getActiveDaemon(key)
+	if err != nil {
+		return err
 	}
+	ad.sigstop()
+	return nil
+}
+
+// Send continue signal
+func (app *App) ContinueDaemon(key string) error {
+	ad, err := app.getActiveDaemon(key)
+	if err != nil {
+		return err
+	}
+	ad.sigcont()
+	return nil
 }

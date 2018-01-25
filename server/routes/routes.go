@@ -14,6 +14,8 @@ func NewRouter(a *app.App) *mux.Router {
 	r.HandleFunc("/{key}", withApp(daemonGetHandler)).Methods("GET")
 	r.HandleFunc("/{key}/start", withApp(daemonStartHandler))
 	r.HandleFunc("/{key}/kill", withApp(daemonKillHandler))
+	r.HandleFunc("/{key}/stop", withApp(daemonStopHandler))
+	r.HandleFunc("/{key}/continue", withApp(daemonContinueHandler))
 	return r
 }
 
@@ -82,9 +84,9 @@ func daemonStartHandler(a *app.App, w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 		jsonError(w, "not found")
 		return
-	} else if err == app.ErrAlreadyRunning {
+	} else if err == app.ErrAlreadyStarted {
 		w.WriteHeader(http.StatusBadRequest)
-		jsonError(w, "already running")
+		jsonError(w, "already started")
 		return
 	} else if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -100,9 +102,45 @@ func daemonKillHandler(a *app.App, w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	key := vars["key"]
 	err := a.KillDaemon(key)
-	if err == app.ErrNotRunning {
+	if err == app.ErrNotStarted {
 		w.WriteHeader(http.StatusBadRequest)
-		jsonError(w, "not running")
+		jsonError(w, "not started")
+		return
+	} else if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		jsonError(w, "database error")
+		return
+	}
+	jsonResponse(w, struct{}{})
+}
+
+// Stop one daemon
+func daemonStopHandler(a *app.App, w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	vars := mux.Vars(r)
+	key := vars["key"]
+	err := a.StopDaemon(key)
+	if err == app.ErrNotStarted {
+		w.WriteHeader(http.StatusBadRequest)
+		jsonError(w, "not started")
+		return
+	} else if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		jsonError(w, "database error")
+		return
+	}
+	jsonResponse(w, struct{}{})
+}
+
+// Continue one daemon
+func daemonContinueHandler(a *app.App, w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	vars := mux.Vars(r)
+	key := vars["key"]
+	err := a.ContinueDaemon(key)
+	if err == app.ErrNotStarted {
+		w.WriteHeader(http.StatusBadRequest)
+		jsonError(w, "not started")
 		return
 	} else if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
