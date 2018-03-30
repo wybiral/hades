@@ -1,4 +1,4 @@
-package app
+package api
 
 import (
 	"crypto/rand"
@@ -6,21 +6,21 @@ import (
 	"encoding/base64"
 	"errors"
 	"github.com/mattn/go-sqlite3"
-	"github.com/wybiral/hades/types"
+	"github.com/wybiral/hades/pkg/types"
 	"os"
 	"sync"
 )
 
 var (
-	ErrNotFound       = errors.New("app: not found")
-	ErrInitDatabase   = errors.New("app: error initializing db")
-	ErrKeyGeneration  = errors.New("app: unable to generate random key")
-	ErrKeyNotUnique   = errors.New("app: key not unique")
-	ErrAlreadyStarted = errors.New("app: already started")
-	ErrNotStarted     = errors.New("app: not started")
+	ErrNotFound       = errors.New("api: not found")
+	ErrInitDatabase   = errors.New("api: error initializing db")
+	ErrKeyGeneration  = errors.New("api: unable to generate random key")
+	ErrKeyNotUnique   = errors.New("api: key not unique")
+	ErrAlreadyStarted = errors.New("api: already started")
+	ErrNotStarted     = errors.New("api: not started")
 )
 
-type App struct {
+type Api struct {
 	db          *sql.DB
 	activeMutex *sync.RWMutex
 	active      map[string]*activeDaemon
@@ -36,7 +36,7 @@ create table Daemon (
 );
 `
 
-func NewApp(dbPath string) (*App, error) {
+func NewApi(dbPath string) (*Api, error) {
 	_, err := os.Stat(dbPath)
 	create := false
 	if err != nil {
@@ -58,28 +58,28 @@ func NewApp(dbPath string) (*App, error) {
 			return nil, ErrInitDatabase
 		}
 	}
-	app := &App{
+	api := &Api{
 		db:          db,
 		activeMutex: &sync.RWMutex{},
 		active:      make(map[string]*activeDaemon),
 	}
 	// Start all active daemons
-	active, err := app.getActive()
+	active, err := api.getActive()
 	if err != nil {
 		return nil, err
 	}
 	for _, key := range active {
-		err := app.StartDaemon(key)
+		err := api.StartDaemon(key)
 		if err != nil {
 			return nil, err
 		}
 	}
-	return app, nil
+	return api, nil
 }
 
 // Return array of keys for running daemons
-func (app *App) getActive() ([]string, error) {
-	db := app.db
+func (api *Api) getActive() ([]string, error) {
+	db := api.db
 	rows, err := db.Query(`
 		select key
 		from Daemon
@@ -116,8 +116,8 @@ func generateKey() (string, error) {
 }
 
 // Return array of all daemons
-func (app *App) GetDaemons() ([]*types.Daemon, error) {
-	db := app.db
+func (api *Api) GetDaemons() ([]*types.Daemon, error) {
+	db := api.db
 	rows, err := db.Query(`
 		select key, cmd, dir, active, status
 		from Daemon
@@ -149,12 +149,12 @@ func (app *App) GetDaemons() ([]*types.Daemon, error) {
 }
 
 // Return a single daemon (by key)
-func (app *App) GetDaemon(key string) (*types.Daemon, error) {
+func (api *Api) GetDaemon(key string) (*types.Daemon, error) {
 	var cmd string
 	var dir string
 	var active int
 	var status string
-	db := app.db
+	db := api.db
 	row := db.QueryRow(`
 		select cmd, dir, active, status
 		from Daemon
@@ -176,11 +176,11 @@ func (app *App) GetDaemon(key string) (*types.Daemon, error) {
 }
 
 // Create a new daemon from a key, cmd strings
-func (app *App) CreateDaemon(key, cmd, dir string) (*types.Daemon, error) {
+func (api *Api) CreateDaemon(key, cmd, dir string) (*types.Daemon, error) {
 	if len(key) == 0 {
-		return app.createDaemonKey(cmd, dir)
+		return api.createDaemonKey(cmd, dir)
 	}
-	db := app.db
+	db := api.db
 	_, err := db.Exec(`
 		insert into Daemon (key, cmd, dir, active, status)
 		values (?, ?, ?, 0, "")
@@ -206,13 +206,13 @@ func (app *App) CreateDaemon(key, cmd, dir string) (*types.Daemon, error) {
 
 // When CreateDaemon is called with empty key, this will generate one
 // XXX: Bad news when keyspace fills up. Consider retry limit.
-func (app *App) createDaemonKey(cmd, dir string) (*types.Daemon, error) {
+func (api *Api) createDaemonKey(cmd, dir string) (*types.Daemon, error) {
 	for {
 		key, err := generateKey()
 		if err != nil {
 			return nil, err
 		}
-		daemon, err := app.CreateDaemon(key, cmd, dir)
+		daemon, err := api.CreateDaemon(key, cmd, dir)
 		if err == ErrKeyNotUnique {
 			// Key isn't unique, try again
 			continue
@@ -225,14 +225,14 @@ func (app *App) createDaemonKey(cmd, dir string) (*types.Daemon, error) {
 }
 
 // Start daemon (by key)
-func (app *App) StartDaemon(key string) error {
-	app.activeMutex.Lock()
-	defer app.activeMutex.Unlock()
-	_, exists := app.active[key]
+func (api *Api) StartDaemon(key string) error {
+	api.activeMutex.Lock()
+	defer api.activeMutex.Unlock()
+	_, exists := api.active[key]
 	if exists {
 		return ErrAlreadyStarted
 	}
-	db := app.db
+	db := api.db
 	res, err := db.Exec(`
 		update Daemon
 		set active = 1
@@ -248,14 +248,14 @@ func (app *App) StartDaemon(key string) error {
 	if rows == 0 {
 		return ErrNotFound
 	}
-	app.active[key] = newActiveDaemon(app, key)
+	api.active[key] = newActiveDaemon(api, key)
 	return nil
 }
 
-func (app *App) getActiveDaemon(key string) (*activeDaemon, error) {
-	app.activeMutex.RLock()
-	defer app.activeMutex.RUnlock()
-	ad, exists := app.active[key]
+func (api *Api) getActiveDaemon(key string) (*activeDaemon, error) {
+	api.activeMutex.RLock()
+	defer api.activeMutex.RUnlock()
+	ad, exists := api.active[key]
 	if !exists {
 		return nil, ErrNotStarted
 	}
@@ -263,8 +263,8 @@ func (app *App) getActiveDaemon(key string) (*activeDaemon, error) {
 }
 
 // Send kill signal
-func (app *App) KillDaemon(key string) error {
-	ad, err := app.getActiveDaemon(key)
+func (api *Api) KillDaemon(key string) error {
+	ad, err := api.getActiveDaemon(key)
 	if err != nil {
 		return err
 	}
@@ -273,8 +273,8 @@ func (app *App) KillDaemon(key string) error {
 }
 
 // Send stop signal
-func (app *App) StopDaemon(key string) error {
-	ad, err := app.getActiveDaemon(key)
+func (api *Api) StopDaemon(key string) error {
+	ad, err := api.getActiveDaemon(key)
 	if err != nil {
 		return err
 	}
@@ -283,8 +283,8 @@ func (app *App) StopDaemon(key string) error {
 }
 
 // Send continue signal
-func (app *App) ContinueDaemon(key string) error {
-	ad, err := app.getActiveDaemon(key)
+func (api *Api) ContinueDaemon(key string) error {
+	ad, err := api.getActiveDaemon(key)
 	if err != nil {
 		return err
 	}

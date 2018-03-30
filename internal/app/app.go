@@ -1,28 +1,42 @@
-package routes
+package app
 
 import (
 	"github.com/gorilla/mux"
-	"github.com/wybiral/hades/server/app"
+	"github.com/wybiral/hades/internal/api"
 	"net/http"
 )
 
-func NewRouter(a *app.App) *mux.Router {
-	withApp := AppMiddleware(a)
+type App struct {
+	api *api.Api
+}
+
+func NewApp(dbPath string) (*App, error) {
+	api, err := api.NewApi(dbPath)
+	if err != nil {
+		return nil, err
+	}
+	app := &App{
+		api: api,
+	}
+	return app, nil
+}
+
+func (a *App) ListenAndServe(addr string) error {
 	r := mux.NewRouter().StrictSlash(true)
-	r.HandleFunc("/", withApp(indexGetHandler)).Methods("GET")
-	r.HandleFunc("/", withApp(indexPostHandler)).Methods("POST")
-	r.HandleFunc("/{key}", withApp(daemonGetHandler)).Methods("GET")
-	r.HandleFunc("/{key}/start", withApp(daemonStartHandler))
-	r.HandleFunc("/{key}/kill", withApp(daemonKillHandler))
-	r.HandleFunc("/{key}/stop", withApp(daemonStopHandler))
-	r.HandleFunc("/{key}/continue", withApp(daemonContinueHandler))
-	return r
+	r.HandleFunc("/", a.indexGetHandler).Methods("GET")
+	r.HandleFunc("/", a.indexPostHandler).Methods("POST")
+	r.HandleFunc("/{key}", a.daemonGetHandler).Methods("GET")
+	r.HandleFunc("/{key}/start", a.daemonStartHandler)
+	r.HandleFunc("/{key}/kill", a.daemonKillHandler)
+	r.HandleFunc("/{key}/stop", a.daemonStopHandler)
+	r.HandleFunc("/{key}/continue", a.daemonContinueHandler)
+	return http.ListenAndServe(addr, r)
 }
 
 // Respond with JSON list of daemons
-func indexGetHandler(a *app.App, w http.ResponseWriter, r *http.Request) {
+func (a *App) indexGetHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	daemons, err := a.GetDaemons()
+	daemons, err := a.api.GetDaemons()
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		jsonError(w, "database error")
@@ -32,7 +46,7 @@ func indexGetHandler(a *app.App, w http.ResponseWriter, r *http.Request) {
 }
 
 // Add new daemon from cmd string
-func indexPostHandler(a *app.App, w http.ResponseWriter, r *http.Request) {
+func (a *App) indexPostHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	r.ParseForm()
 	key := r.PostForm.Get("key")
@@ -43,8 +57,8 @@ func indexPostHandler(a *app.App, w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "cmd required")
 		return
 	}
-	daemon, err := a.CreateDaemon(key, cmd, dir)
-	if err == app.ErrKeyNotUnique {
+	daemon, err := a.api.CreateDaemon(key, cmd, dir)
+	if err == api.ErrKeyNotUnique {
 		w.WriteHeader(http.StatusBadRequest)
 		jsonError(w, "key already exists")
 		return
@@ -57,12 +71,12 @@ func indexPostHandler(a *app.App, w http.ResponseWriter, r *http.Request) {
 }
 
 // Respond with JSON object for one daemon
-func daemonGetHandler(a *app.App, w http.ResponseWriter, r *http.Request) {
+func (a *App) daemonGetHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	vars := mux.Vars(r)
 	key := vars["key"]
-	daemon, err := a.GetDaemon(key)
-	if err == app.ErrNotFound {
+	daemon, err := a.api.GetDaemon(key)
+	if err == api.ErrNotFound {
 		w.WriteHeader(http.StatusNotFound)
 		jsonError(w, "not found")
 		return
@@ -75,16 +89,16 @@ func daemonGetHandler(a *app.App, w http.ResponseWriter, r *http.Request) {
 }
 
 // Start one daemon
-func daemonStartHandler(a *app.App, w http.ResponseWriter, r *http.Request) {
+func (a *App) daemonStartHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	vars := mux.Vars(r)
 	key := vars["key"]
-	err := a.StartDaemon(key)
-	if err == app.ErrNotFound {
+	err := a.api.StartDaemon(key)
+	if err == api.ErrNotFound {
 		w.WriteHeader(http.StatusNotFound)
 		jsonError(w, "not found")
 		return
-	} else if err == app.ErrAlreadyStarted {
+	} else if err == api.ErrAlreadyStarted {
 		w.WriteHeader(http.StatusBadRequest)
 		jsonError(w, "already started")
 		return
@@ -97,12 +111,12 @@ func daemonStartHandler(a *app.App, w http.ResponseWriter, r *http.Request) {
 }
 
 // Kill one daemon
-func daemonKillHandler(a *app.App, w http.ResponseWriter, r *http.Request) {
+func (a *App) daemonKillHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	vars := mux.Vars(r)
 	key := vars["key"]
-	err := a.KillDaemon(key)
-	if err == app.ErrNotStarted {
+	err := a.api.KillDaemon(key)
+	if err == api.ErrNotStarted {
 		w.WriteHeader(http.StatusBadRequest)
 		jsonError(w, "not started")
 		return
@@ -115,12 +129,12 @@ func daemonKillHandler(a *app.App, w http.ResponseWriter, r *http.Request) {
 }
 
 // Stop one daemon
-func daemonStopHandler(a *app.App, w http.ResponseWriter, r *http.Request) {
+func (a *App) daemonStopHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	vars := mux.Vars(r)
 	key := vars["key"]
-	err := a.StopDaemon(key)
-	if err == app.ErrNotStarted {
+	err := a.api.StopDaemon(key)
+	if err == api.ErrNotStarted {
 		w.WriteHeader(http.StatusBadRequest)
 		jsonError(w, "not started")
 		return
@@ -133,12 +147,12 @@ func daemonStopHandler(a *app.App, w http.ResponseWriter, r *http.Request) {
 }
 
 // Continue one daemon
-func daemonContinueHandler(a *app.App, w http.ResponseWriter, r *http.Request) {
+func (a *App) daemonContinueHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	vars := mux.Vars(r)
 	key := vars["key"]
-	err := a.ContinueDaemon(key)
-	if err == app.ErrNotStarted {
+	err := a.api.ContinueDaemon(key)
+	if err == api.ErrNotStarted {
 		w.WriteHeader(http.StatusBadRequest)
 		jsonError(w, "not started")
 		return

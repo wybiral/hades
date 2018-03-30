@@ -1,4 +1,4 @@
-package app
+package api
 
 import (
 	"github.com/google/shlex"
@@ -9,7 +9,7 @@ import (
 )
 
 type activeDaemon struct {
-	app       *App
+	api       *Api
 	key       string
 	pidMutex  *sync.Mutex
 	pid       int
@@ -17,9 +17,9 @@ type activeDaemon struct {
 	exit      bool
 }
 
-func newActiveDaemon(app *App, key string) *activeDaemon {
+func newActiveDaemon(api *Api, key string) *activeDaemon {
 	ad := &activeDaemon{
-		app:       app,
+		api:       api,
 		key:       key,
 		pidMutex:  &sync.Mutex{},
 		pid:       0,
@@ -32,7 +32,7 @@ func newActiveDaemon(app *App, key string) *activeDaemon {
 }
 
 func (ad *activeDaemon) setStatus(status string) {
-	ad.app.db.Exec(`
+	ad.api.db.Exec(`
 		update Daemon
 		set status = ?
 		where key = ?
@@ -40,11 +40,11 @@ func (ad *activeDaemon) setStatus(status string) {
 }
 
 func (ad *activeDaemon) cleanup() {
-	app := ad.app
-	app.activeMutex.Lock()
-	defer app.activeMutex.Unlock()
-	delete(app.active, ad.key)
-	app.db.Exec(`
+	api := ad.api
+	api.activeMutex.Lock()
+	defer api.activeMutex.Unlock()
+	delete(api.active, ad.key)
+	api.db.Exec(`
 		update Daemon
 		set active = 0, status = ''
 		where key = ?
@@ -53,11 +53,11 @@ func (ad *activeDaemon) cleanup() {
 
 func (ad *activeDaemon) start() {
 	defer ad.cleanup()
-	app := ad.app
+	api := ad.api
 	key := ad.key
 	var cmd string
 	var dir string
-	row := app.db.QueryRow(`
+	row := api.db.QueryRow(`
 		select cmd, dir
 		from Daemon
 		where key = ?

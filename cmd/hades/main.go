@@ -3,10 +3,8 @@ package main
 import (
 	"flag"
 	"fmt"
-	"github.com/wybiral/hades/server/app"
-	"github.com/wybiral/hades/server/routes"
+	"github.com/wybiral/hades/internal/app"
 	"log"
-	"net/http"
 )
 
 func main() {
@@ -35,15 +33,14 @@ func main() {
 		"specify server port",
 	)
 	flag.Parse()
+	addr := fmt.Sprintf("%s:%d", host, port)
+	log.Println("Serving at", addr)
 	a, err := app.NewApp(db)
 	if err != nil {
 		log.Println(err)
 		return
 	}
-	r := routes.NewRouter(a)
-	addr := fmt.Sprintf("%s:%d", host, port)
-	log.Println("Serving at", addr)
-	err = http.ListenAndServe(addr, r)
+	err = a.ListenAndServe(addr)
 	if err != nil {
 		log.Println(err)
 	}
