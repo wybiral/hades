@@ -9,7 +9,7 @@ import (
 
 func main() {
 	// Setup db flag
-	db := "app.db"
+	db := "hades.db"
 	flag.StringVar(
 		&db,
 		"db",
