@@ -1,12 +1,17 @@
 package api
 
 import (
+	"errors"
 	"github.com/google/shlex"
+	"log"
 	"os"
 	"os/exec"
 	"sync"
 	"syscall"
+	"time"
 )
+
+const timeout = time.Second * 10
 
 type activeDaemon struct {
 	api       *Api
@@ -71,36 +76,45 @@ func (ad *activeDaemon) start() {
 		return
 	}
 	for {
-		c := exec.Command(parts[0], parts[1:]...)
-		c.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-		c.Dir = dir
-		c.Env = os.Environ()
-		err := c.Start()
-		if err != nil {
-			continue
-		}
-		ad.pidMutex.Lock()
-		ad.pid = c.Process.Pid
-		ad.pidMutex.Unlock()
-		c.Wait()
 		ad.exitMutex.Lock()
 		exit := ad.exit
 		ad.exitMutex.Unlock()
 		if exit {
 			return
 		}
+		c := exec.Command(parts[0], parts[1:]...)
+		c.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+		c.Dir = dir
+		c.Env = os.Environ()
+		err := c.Start()
+		if err != nil {
+			log.Println(ad.key+":", err)
+			time.Sleep(timeout)
+			continue
+		}
+		ad.pidMutex.Lock()
+		ad.pid = c.Process.Pid
+		ad.pidMutex.Unlock()
+		err = c.Wait()
+		if err != nil {
+			continue
+		}
 	}
 }
 
 func (ad *activeDaemon) sigkill() error {
-	err := syscall.Kill(-ad.pid, syscall.SIGKILL)
-	if err != nil {
-		return err
-	}
 	ad.exitMutex.Lock()
 	ad.setStatus("stopping")
 	defer ad.exitMutex.Unlock()
 	ad.exit = true
+	if ad.pid == 0 {
+		// This happens when the process fails
+		return errors.New("daemon: bad pid")
+	}
+	err := syscall.Kill(-ad.pid, syscall.SIGKILL)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 

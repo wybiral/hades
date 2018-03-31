@@ -102,8 +102,7 @@ func (api *Api) getActive() ([]string, error) {
 }
 
 // Create a new daemon key
-func generateKey() (string, error) {
-	n := 8
+func generateKey(n int) (string, error) {
 	data := make([]byte, n)
 	_n, err := rand.Read(data)
 	if err != nil {
@@ -138,10 +137,10 @@ func (api *Api) GetDaemons() ([]*types.Daemon, error) {
 			return nil, err
 		}
 		daemons = append(daemons, &types.Daemon{
-			Key:    key,
-			Cmd:    cmd,
-			Dir:    dir,
-			Status: status,
+			Key:      key,
+			Cmd:      cmd,
+			Dir:      dir,
+			Status:   status,
 			Disabled: disabled == 1,
 		})
 	}
@@ -167,10 +166,10 @@ func (api *Api) GetDaemon(key string) (*types.Daemon, error) {
 		return nil, err
 	}
 	return &types.Daemon{
-		Key:    key,
-		Cmd:    cmd,
-		Dir:    dir,
-		Status: status,
+		Key:      key,
+		Cmd:      cmd,
+		Dir:      dir,
+		Status:   status,
 		Disabled: disabled == 1,
 	}, nil
 }
@@ -196,25 +195,33 @@ func (api *Api) CreateDaemon(key, cmd, dir string) (*types.Daemon, error) {
 		return nil, err
 	}
 	return &types.Daemon{
-		Key:    key,
-		Cmd:    cmd,
-		Dir:    dir,
-		Status: "stopped",
+		Key:      key,
+		Cmd:      cmd,
+		Dir:      dir,
+		Status:   "stopped",
 		Disabled: true,
 	}, nil
 }
 
 // When CreateDaemon is called with empty key, this will generate one
-// XXX: Bad news when keyspace fills up. Consider retry limit.
+// XXX: Find a better key generation scheme
 func (api *Api) createDaemonKey(cmd, dir string) (*types.Daemon, error) {
+	n := 3
+	fails := 0
 	for {
-		key, err := generateKey()
+		key, err := generateKey(n)
 		if err != nil {
 			return nil, err
 		}
 		daemon, err := api.CreateDaemon(key, cmd, dir)
 		if err == ErrKeyNotUnique {
 			// Key isn't unique, try again
+			fails += 1
+			if fails > 4 {
+				// Too many fails, increase key size
+				fails = 0
+				n += 1
+			}
 			continue
 		}
 		if err != nil {
