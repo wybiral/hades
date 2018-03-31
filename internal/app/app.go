@@ -4,6 +4,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/wybiral/hades/internal/api"
 	"net/http"
+	"log"
 )
 
 type App struct {
@@ -26,6 +27,7 @@ func (a *App) ListenAndServe(addr string) error {
 	r.HandleFunc("/", a.indexGetHandler).Methods("GET")
 	r.HandleFunc("/", a.indexPostHandler).Methods("POST")
 	r.HandleFunc("/{key}", a.daemonGetHandler).Methods("GET")
+	r.HandleFunc("/{key}", a.daemonDeleteHandler).Methods("DELETE")
 	r.HandleFunc("/{key}/start", a.daemonStartHandler)
 	r.HandleFunc("/{key}/stop", a.daemonStopHandler)
 	r.HandleFunc("/{key}/pause", a.daemonPauseHandler)
@@ -86,6 +88,29 @@ func (a *App) daemonGetHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	jsonResponse(w, daemon)
+}
+
+// Delete a daemon
+func (a *App) daemonDeleteHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	vars := mux.Vars(r)
+	key := vars["key"]
+	err := a.api.DeleteDaemon(key)
+	if err == api.ErrAlreadyStarted {
+		w.WriteHeader(http.StatusBadRequest)
+		jsonError(w, "stop daemon before deleting")
+		return
+	} else if err == api.ErrNotFound {
+		w.WriteHeader(http.StatusNotFound)
+		jsonError(w, "not found")
+		return
+	} else if err != nil {
+		log.Println(err)
+		w.WriteHeader(http.StatusInternalServerError)
+		jsonError(w, "database error")
+		return
+	}
+	jsonResponse(w, struct{}{})
 }
 
 // Start one daemon

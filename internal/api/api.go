@@ -231,6 +231,24 @@ func (api *Api) createDaemonKey(cmd, dir string) (*types.Daemon, error) {
 	}
 }
 
+func (api *Api) DeleteDaemon(key string) error {
+	api.activeMutex.Lock()
+	defer api.activeMutex.Unlock()
+	_, exists := api.active[key]
+	if exists {
+		return ErrAlreadyStarted
+	}
+	db := api.db
+	_, err := db.Exec(`
+		delete from Daemon
+		where key = ?
+	`, key)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 // Start daemon (by key)
 func (api *Api) StartDaemon(key string) error {
 	api.activeMutex.Lock()

@@ -47,26 +47,32 @@ func main() {
 			Action:    cmdAdd,
 		},
 		cli.Command{
+			Name:      "remove",
+			ArgsUsage: "<key>",
+			Usage:     "Remove daemon",
+			Action:    cmdRemove,
+		},
+		cli.Command{
 			Name:      "start",
-			ArgsUsage: "[key]",
+			ArgsUsage: "<key>",
 			Usage:     "Start daemon",
 			Action:    cmdStart,
 		},
 		cli.Command{
 			Name:      "stop",
-			ArgsUsage: "[key]",
+			ArgsUsage: "<key>",
 			Usage:     "Stop daemon",
 			Action:    cmdStop,
 		},
 		cli.Command{
 			Name:      "pause",
-			ArgsUsage: "[key]",
+			ArgsUsage: "<key>",
 			Usage:     "Pause daemon",
 			Action:    cmdPause,
 		},
 		cli.Command{
 			Name:      "continue",
-			ArgsUsage: "[key]",
+			ArgsUsage: "<key>",
 			Usage:     "Continue daemon",
 			Action:    cmdContinue,
 		},
@@ -164,6 +170,27 @@ func cmdAdd(c *cli.Context) {
 		log.Fatal(err)
 	}
 	printDaemon(daemon)
+}
+
+func cmdRemove(c *cli.Context) {
+	args := c.Args()
+	addr := getAddr(c)
+	if len(args) != 1 {
+		cli.ShowCommandHelp(c, "remove")
+		return
+	}
+	key := args[0]
+	client := &http.Client{}
+	req, err := http.NewRequest("DELETE", addr + "/" + key, nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+	res, err := client.Do(req)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer res.Body.Close()
+	fmt.Println(key, "removed\n")
 }
 
 func simpleCommand(c *cli.Context, command string) {

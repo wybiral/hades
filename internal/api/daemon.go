@@ -104,8 +104,8 @@ func (ad *activeDaemon) start() {
 
 func (ad *activeDaemon) sigkill() error {
 	ad.exitMutex.Lock()
-	ad.setStatus("stopping")
 	defer ad.exitMutex.Unlock()
+	ad.setStatus("stopping")
 	ad.exit = true
 	if ad.pid == 0 {
 		// This happens when the process fails
