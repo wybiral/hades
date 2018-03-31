@@ -100,9 +100,9 @@ func main() {
 }
 
 func printDaemon(daemon *types.Daemon) {
-	fmt.Println("   Key:", daemon.Key)
-	fmt.Println("   Cmd:", daemon.Cmd)
-	fmt.Println("   Dir:", daemon.Dir)
+	fmt.Println("Key:  ", daemon.Key)
+	fmt.Println("Cmd:  ", daemon.Cmd)
+	fmt.Println("Dir:  ", daemon.Dir)
 	fmt.Println("Status:", daemon.Status)
 	fmt.Println("")
 }
