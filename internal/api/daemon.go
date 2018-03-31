@@ -46,7 +46,7 @@ func (ad *activeDaemon) cleanup() {
 	delete(api.active, ad.key)
 	api.db.Exec(`
 		update Daemon
-		set active = 0, status = ''
+		set status = 'stopped', disabled = 1
 		where key = ?
 	`, ad.key)
 }
@@ -98,6 +98,7 @@ func (ad *activeDaemon) sigkill() error {
 		return err
 	}
 	ad.exitMutex.Lock()
+	ad.setStatus("stopping")
 	defer ad.exitMutex.Unlock()
 	ad.exit = true
 	return nil
@@ -108,7 +109,7 @@ func (ad *activeDaemon) sigstop() error {
 	if err != nil {
 		return err
 	}
-	ad.setStatus("stopped")
+	ad.setStatus("paused")
 	return nil
 }
 

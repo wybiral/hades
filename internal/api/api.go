@@ -31,8 +31,8 @@ create table Daemon (
 	key text not null primary key,
 	cmd text not null,
 	dir text not null,
-	active int not null,
-	status string not null
+	status string not null,
+	disabled int not null
 );
 `
 
@@ -83,7 +83,7 @@ func (api *Api) getActive() ([]string, error) {
 	rows, err := db.Query(`
 		select key
 		from Daemon
-		where active == 1
+		where disabled == 0
 	`)
 	if err != nil {
 		return nil, err
@@ -119,7 +119,7 @@ func generateKey() (string, error) {
 func (api *Api) GetDaemons() ([]*types.Daemon, error) {
 	db := api.db
 	rows, err := db.Query(`
-		select key, cmd, dir, active, status
+		select key, cmd, dir, status, disabled
 		from Daemon
 	`)
 	if err != nil {
@@ -131,9 +131,9 @@ func (api *Api) GetDaemons() ([]*types.Daemon, error) {
 		var key string
 		var cmd string
 		var dir string
-		var active int
 		var status string
-		err = rows.Scan(&key, &cmd, &dir, &active, &status)
+		var disabled int
+		err = rows.Scan(&key, &cmd, &dir, &status, &disabled)
 		if err != nil {
 			return nil, err
 		}
@@ -141,8 +141,8 @@ func (api *Api) GetDaemons() ([]*types.Daemon, error) {
 			Key:    key,
 			Cmd:    cmd,
 			Dir:    dir,
-			Active: active == 1,
 			Status: status,
+			Disabled: disabled == 1,
 		})
 	}
 	return daemons, nil
@@ -152,15 +152,15 @@ func (api *Api) GetDaemons() ([]*types.Daemon, error) {
 func (api *Api) GetDaemon(key string) (*types.Daemon, error) {
 	var cmd string
 	var dir string
-	var active int
 	var status string
+	var disabled int
 	db := api.db
 	row := db.QueryRow(`
-		select cmd, dir, active, status
+		select cmd, dir, status, disabled
 		from Daemon
 		where key = ?
 	`, key)
-	err := row.Scan(&cmd, &dir, &active, &status)
+	err := row.Scan(&cmd, &dir, &status, &disabled)
 	if err == sql.ErrNoRows {
 		return nil, ErrNotFound
 	} else if err != nil {
@@ -170,8 +170,8 @@ func (api *Api) GetDaemon(key string) (*types.Daemon, error) {
 		Key:    key,
 		Cmd:    cmd,
 		Dir:    dir,
-		Active: active == 1,
 		Status: status,
+		Disabled: disabled == 1,
 	}, nil
 }
 
@@ -182,8 +182,8 @@ func (api *Api) CreateDaemon(key, cmd, dir string) (*types.Daemon, error) {
 	}
 	db := api.db
 	_, err := db.Exec(`
-		insert into Daemon (key, cmd, dir, active, status)
-		values (?, ?, ?, 0, "")
+		insert into Daemon (key, cmd, dir, status, disabled)
+		values (?, ?, ?, "stopped", 1)
 	`, key, cmd, dir)
 	if err != nil {
 		sqliteErr, ok := err.(sqlite3.Error)
@@ -199,8 +199,8 @@ func (api *Api) CreateDaemon(key, cmd, dir string) (*types.Daemon, error) {
 		Key:    key,
 		Cmd:    cmd,
 		Dir:    dir,
-		Active: false,
-		Status: "",
+		Status: "stopped",
+		Disabled: true,
 	}, nil
 }
 
@@ -235,7 +235,7 @@ func (api *Api) StartDaemon(key string) error {
 	db := api.db
 	res, err := db.Exec(`
 		update Daemon
-		set active = 1
+		set disabled = 0
 		where key = ?
 	`, key)
 	if err != nil {
@@ -262,8 +262,7 @@ func (api *Api) getActiveDaemon(key string) (*activeDaemon, error) {
 	return ad, nil
 }
 
-// Send kill signal
-func (api *Api) KillDaemon(key string) error {
+func (api *Api) StopDaemon(key string) error {
 	ad, err := api.getActiveDaemon(key)
 	if err != nil {
 		return err
@@ -272,8 +271,7 @@ func (api *Api) KillDaemon(key string) error {
 	return nil
 }
 
-// Send stop signal
-func (api *Api) StopDaemon(key string) error {
+func (api *Api) PauseDaemon(key string) error {
 	ad, err := api.getActiveDaemon(key)
 	if err != nil {
 		return err
@@ -282,7 +280,6 @@ func (api *Api) StopDaemon(key string) error {
 	return nil
 }
 
-// Send continue signal
 func (api *Api) ContinueDaemon(key string) error {
 	ad, err := api.getActiveDaemon(key)
 	if err != nil {

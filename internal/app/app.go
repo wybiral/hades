@@ -27,8 +27,8 @@ func (a *App) ListenAndServe(addr string) error {
 	r.HandleFunc("/", a.indexPostHandler).Methods("POST")
 	r.HandleFunc("/{key}", a.daemonGetHandler).Methods("GET")
 	r.HandleFunc("/{key}/start", a.daemonStartHandler)
-	r.HandleFunc("/{key}/kill", a.daemonKillHandler)
 	r.HandleFunc("/{key}/stop", a.daemonStopHandler)
+	r.HandleFunc("/{key}/pause", a.daemonPauseHandler)
 	r.HandleFunc("/{key}/continue", a.daemonContinueHandler)
 	return http.ListenAndServe(addr, r)
 }
@@ -107,25 +107,13 @@ func (a *App) daemonStartHandler(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "database error")
 		return
 	}
-	jsonResponse(w, struct{}{})
-}
-
-// Kill one daemon
-func (a *App) daemonKillHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	vars := mux.Vars(r)
-	key := vars["key"]
-	err := a.api.KillDaemon(key)
-	if err == api.ErrNotStarted {
-		w.WriteHeader(http.StatusBadRequest)
-		jsonError(w, "not started")
-		return
-	} else if err != nil {
+	daemon, err := a.api.GetDaemon(key)
+	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		jsonError(w, "database error")
 		return
 	}
-	jsonResponse(w, struct{}{})
+	jsonResponse(w, daemon)
 }
 
 // Stop one daemon
@@ -143,7 +131,37 @@ func (a *App) daemonStopHandler(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "database error")
 		return
 	}
-	jsonResponse(w, struct{}{})
+	daemon, err := a.api.GetDaemon(key)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		jsonError(w, "database error")
+		return
+	}
+	jsonResponse(w, daemon)
+}
+
+// Pause one daemon
+func (a *App) daemonPauseHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	vars := mux.Vars(r)
+	key := vars["key"]
+	err := a.api.PauseDaemon(key)
+	if err == api.ErrNotStarted {
+		w.WriteHeader(http.StatusBadRequest)
+		jsonError(w, "not started")
+		return
+	} else if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		jsonError(w, "database error")
+		return
+	}
+	daemon, err := a.api.GetDaemon(key)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		jsonError(w, "database error")
+		return
+	}
+	jsonResponse(w, daemon)
 }
 
 // Continue one daemon
@@ -161,5 +179,11 @@ func (a *App) daemonContinueHandler(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "database error")
 		return
 	}
-	jsonResponse(w, struct{}{})
+	daemon, err := a.api.GetDaemon(key)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		jsonError(w, "database error")
+		return
+	}
+	jsonResponse(w, daemon)
 }
