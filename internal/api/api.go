@@ -239,12 +239,16 @@ func (api *Api) DeleteDaemon(key string) error {
 		return ErrAlreadyStarted
 	}
 	db := api.db
-	_, err := db.Exec(`
+	res, err := db.Exec(`
 		delete from Daemon
 		where key = ?
 	`, key)
 	if err != nil {
 		return err
+	}
+	rows, err := res.RowsAffected()
+	if rows == 0 {
+		return ErrNotFound
 	}
 	return nil
 }

@@ -3,8 +3,8 @@ package app
 import (
 	"github.com/gorilla/mux"
 	"github.com/wybiral/hades/internal/api"
-	"net/http"
 	"log"
+	"net/http"
 )
 
 type App struct {

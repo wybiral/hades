@@ -1,10 +1,9 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"github.com/urfave/cli"
-	"github.com/wybiral/hades/pkg/types"
+	"io"
 	"log"
 	"net/http"
 	"net/url"
@@ -12,7 +11,7 @@ import (
 	"sort"
 )
 
-const version = "0.0.1"
+const version = "0.1.0"
 
 func main() {
 	app := cli.NewApp()
@@ -23,15 +22,19 @@ func main() {
 	cli.VersionFlag = cli.StringFlag{Hidden: true}
 	app.Flags = []cli.Flag{
 		cli.StringFlag{
-			Name:  "host",
+			Name:  "host, h",
 			Value: "127.0.0.1",
 			Usage: "Server host",
 		},
 		cli.IntFlag{
-			Name:  "port",
+			Name:  "port, p",
 			Value: 8666,
 			Usage: "Server port",
 		},
+	}
+	keyFlag := cli.StringFlag{
+		Name:  "key, k",
+		Usage: "Daemon key value",
 	}
 	app.Commands = []cli.Command{
 		cli.Command{
@@ -42,39 +45,61 @@ func main() {
 		},
 		cli.Command{
 			Name:      "add",
-			ArgsUsage: "[key] <cmd> <dir>",
+			ArgsUsage: "COMMAND",
 			Usage:     "Add daemon",
 			Action:    cmdAdd,
+			Flags: []cli.Flag{
+				keyFlag,
+				cli.StringFlag{
+					Name:  "dir, d",
+					Usage: "Directory for daemon",
+				},
+			},
 		},
 		cli.Command{
 			Name:      "remove",
-			ArgsUsage: "<key>",
+			ArgsUsage: " ",
 			Usage:     "Remove daemon",
 			Action:    cmdRemove,
+			Flags: []cli.Flag{
+				keyFlag,
+			},
 		},
 		cli.Command{
 			Name:      "start",
-			ArgsUsage: "<key>",
+			ArgsUsage: " ",
 			Usage:     "Start daemon",
 			Action:    cmdStart,
+			Flags: []cli.Flag{
+				keyFlag,
+			},
 		},
 		cli.Command{
 			Name:      "stop",
-			ArgsUsage: "<key>",
+			ArgsUsage: " ",
 			Usage:     "Stop daemon",
 			Action:    cmdStop,
+			Flags: []cli.Flag{
+				keyFlag,
+			},
 		},
 		cli.Command{
 			Name:      "pause",
-			ArgsUsage: "<key>",
+			ArgsUsage: " ",
 			Usage:     "Pause daemon",
 			Action:    cmdPause,
+			Flags: []cli.Flag{
+				keyFlag,
+			},
 		},
 		cli.Command{
 			Name:      "continue",
-			ArgsUsage: "<key>",
+			ArgsUsage: " ",
 			Usage:     "Continue daemon",
 			Action:    cmdContinue,
+			Flags: []cli.Flag{
+				keyFlag,
+			},
 		},
 		cli.Command{
 			Name:      "help",
@@ -105,13 +130,6 @@ func main() {
 	}
 }
 
-func printDaemon(daemon *types.Daemon) {
-	fmt.Println(daemon.Key + " (" + daemon.Status + ")")
-	fmt.Println("  Cmd: " + daemon.Cmd)
-	fmt.Println("  Dir: " + daemon.Dir)
-	fmt.Println("")
-}
-
 func getAddr(c *cli.Context) string {
 	host := c.GlobalString("host")
 	port := c.GlobalInt("port")
@@ -125,63 +143,57 @@ func cmdList(c *cli.Context) {
 		log.Fatal(err)
 	}
 	defer res.Body.Close()
-	dec := json.NewDecoder(res.Body)
-	var daemons []*types.Daemon
-	err = dec.Decode(&daemons)
+	_, err = io.Copy(os.Stdout, res.Body)
 	if err != nil {
 		log.Fatal(err)
-	}
-	for _, daemon := range daemons {
-		printDaemon(daemon)
 	}
 }
 
 func cmdAdd(c *cli.Context) {
 	args := c.Args()
-	addr := getAddr(c)
-	var key, cmd, dir string
-	if len(args) == 3 {
-		key = args[0]
-		cmd = args[1]
-		dir = args[2]
-	} else if len(args) == 2 {
-		cmd = args[0]
-		dir = args[1]
-	} else {
+	if len(args) != 1 {
 		cli.ShowCommandHelp(c, "add")
 		return
 	}
+	values := url.Values{}
+	values["cmd"] = []string{args[0]}
+	key := c.String("key")
+	if len(key) > 0 {
+		values["key"] = []string{key}
+	}
+	dir := c.String("dir")
+	if len(dir) > 0 {
+		values["dir"] = []string{dir}
+	}
+	addr := getAddr(c)
 	res, err := http.PostForm(
 		addr,
-		url.Values{
-			"key": {key},
-			"cmd": {cmd},
-			"dir": {dir},
-		},
+		values,
 	)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer res.Body.Close()
-	dec := json.NewDecoder(res.Body)
-	daemon := &types.Daemon{}
-	err = dec.Decode(&daemon)
+	_, err = io.Copy(os.Stdout, res.Body)
 	if err != nil {
 		log.Fatal(err)
 	}
-	printDaemon(daemon)
 }
 
 func cmdRemove(c *cli.Context) {
-	args := c.Args()
-	addr := getAddr(c)
-	if len(args) != 1 {
+	key := c.String("key")
+	if len(key) == 0 {
 		cli.ShowCommandHelp(c, "remove")
 		return
 	}
-	key := args[0]
+	args := c.Args()
+	if len(args) > 0 {
+		cli.ShowCommandHelp(c, "remove")
+		return
+	}
+	addr := getAddr(c)
 	client := &http.Client{}
-	req, err := http.NewRequest("DELETE", addr + "/" + key, nil)
+	req, err := http.NewRequest("DELETE", addr+"/"+key, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -190,29 +202,33 @@ func cmdRemove(c *cli.Context) {
 		log.Fatal(err)
 	}
 	defer res.Body.Close()
-	fmt.Println(key, "removed\n")
+	_, err = io.Copy(os.Stdout, res.Body)
+	if err != nil {
+		log.Fatal(err)
+	}
 }
 
 func simpleCommand(c *cli.Context, command string) {
-	args := c.Args()
-	addr := getAddr(c)
-	if len(args) != 1 {
+	key := c.String("key")
+	if len(key) == 0 {
 		cli.ShowCommandHelp(c, command)
 		return
 	}
-	key := args[0]
+	args := c.Args()
+	if len(args) > 0 {
+		cli.ShowCommandHelp(c, command)
+		return
+	}
+	addr := getAddr(c)
 	res, err := http.Get(addr + "/" + key + "/" + command)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer res.Body.Close()
-	dec := json.NewDecoder(res.Body)
-	daemon := &types.Daemon{}
-	err = dec.Decode(&daemon)
+	_, err = io.Copy(os.Stdout, res.Body)
 	if err != nil {
 		log.Fatal(err)
 	}
-	printDaemon(daemon)
 }
 
 func cmdStart(c *cli.Context) {
