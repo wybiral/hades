@@ -3,7 +3,6 @@ package app
 import (
 	"github.com/gorilla/mux"
 	"github.com/wybiral/hades/internal/api"
-	"log"
 	"net/http"
 )
 
@@ -105,7 +104,6 @@ func (a *App) daemonDeleteHandler(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "not found")
 		return
 	} else if err != nil {
-		log.Println(err)
 		w.WriteHeader(http.StatusInternalServerError)
 		jsonError(w, "database error")
 		return
