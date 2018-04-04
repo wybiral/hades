@@ -2,7 +2,7 @@ package app
 
 import (
 	"github.com/gorilla/mux"
-	"github.com/wybiral/hades/internal/api"
+	"github.com/wybiral/hades/internal/server/api"
 	"net/http"
 )
 

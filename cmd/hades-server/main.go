@@ -3,7 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
-	"github.com/wybiral/hades/internal/app"
+	"github.com/wybiral/hades/internal/server/app"
 	"log"
 )
 
