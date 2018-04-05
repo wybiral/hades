@@ -1,3 +1,3 @@
 # hades
 
-Remote cross-platform daemon manager. 
+Remote daemon manager. 
