@@ -23,6 +23,13 @@ func NewApp() *cli.App {
 			Usage: "Server port",
 		},
 	}
+	installCommands(a)
+	sort.Sort(cli.FlagsByName(a.Flags))
+	sort.Sort(cli.CommandsByName(a.Commands))
+	return a
+}
+
+func installCommands(a *cli.App) {
 	keyFlag := cli.StringFlag{
 		Name:  "key, k",
 		Usage: "Daemon key value",
@@ -113,7 +120,4 @@ func NewApp() *cli.App {
 			},
 		},
 	}
-	sort.Sort(cli.FlagsByName(a.Flags))
-	sort.Sort(cli.CommandsByName(a.Commands))
-	return a
 }
