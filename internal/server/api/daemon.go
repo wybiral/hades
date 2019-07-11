@@ -1,14 +1,18 @@
 package api
 
 import (
+	"encoding/json"
 	"errors"
-	"github.com/google/shlex"
 	"log"
 	"os"
 	"os/exec"
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/boltdb/bolt"
+	"github.com/google/shlex"
+	"github.com/wybiral/hades/pkg/types"
 )
 
 const timeout = time.Second * 10
@@ -37,11 +41,21 @@ func newActiveDaemon(api *Api, key string) *activeDaemon {
 }
 
 func (ad *activeDaemon) setStatus(status string) {
-	ad.api.db.Exec(`
-		update Daemon
-		set status = ?
-		where key = ?
-	`, status, ad.key)
+	ad.api.db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket(daemonBucket)
+		v := b.Get([]byte(ad.key))
+		d := &types.Daemon{}
+		err := json.Unmarshal(v, d)
+		if err != nil {
+			return err
+		}
+		d.Status = status
+		enc, err := json.Marshal(d)
+		if err != nil {
+			return err
+		}
+		return b.Put([]byte(ad.key), enc)
+	})
 }
 
 func (ad *activeDaemon) cleanup() {
@@ -49,29 +63,33 @@ func (ad *activeDaemon) cleanup() {
 	api.activeMutex.Lock()
 	defer api.activeMutex.Unlock()
 	delete(api.active, ad.key)
-	api.db.Exec(`
-		update Daemon
-		set status = 'stopped', disabled = 1
-		where key = ?
-	`, ad.key)
+	ad.api.db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket(daemonBucket)
+		v := b.Get([]byte(ad.key))
+		d := &types.Daemon{}
+		err := json.Unmarshal(v, d)
+		if err != nil {
+			return err
+		}
+		d.Disabled = true
+		d.Status = "stopped"
+		enc, err := json.Marshal(d)
+		if err != nil {
+			return err
+		}
+		return b.Put([]byte(ad.key), enc)
+	})
 }
 
 func (ad *activeDaemon) start() {
 	defer ad.cleanup()
 	api := ad.api
 	key := ad.key
-	var cmd string
-	var dir string
-	row := api.db.QueryRow(`
-		select cmd, dir
-		from Daemon
-		where key = ?
-	`, key)
-	err := row.Scan(&cmd, &dir)
+	d, err := api.GetDaemon(key)
 	if err != nil {
 		return
 	}
-	parts, err := shlex.Split(cmd)
+	parts, err := shlex.Split(d.Cmd)
 	if err != nil {
 		return
 	}
@@ -84,7 +102,7 @@ func (ad *activeDaemon) start() {
 		}
 		c := exec.Command(parts[0], parts[1:]...)
 		c.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-		c.Dir = dir
+		c.Dir = d.Dir
 		c.Env = os.Environ()
 		err := c.Start()
 		if err != nil {
