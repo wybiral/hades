@@ -2,13 +2,14 @@ package api
 
 import (
 	"crypto/rand"
-	"database/sql"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
-	"github.com/mattn/go-sqlite3"
-	"github.com/wybiral/hades/pkg/types"
-	"os"
 	"sync"
+	"time"
+
+	"github.com/boltdb/bolt"
+	"github.com/wybiral/hades/pkg/types"
 )
 
 var (
@@ -20,44 +21,24 @@ var (
 	ErrNotStarted     = errors.New("api: not started")
 )
 
+var daemonBucket = []byte("daemons")
+
 type Api struct {
-	db          *sql.DB
+	db          *bolt.DB
 	activeMutex *sync.RWMutex
 	active      map[string]*activeDaemon
 }
 
-const schema = `
-create table Daemon (
-	key text not null primary key,
-	cmd text not null,
-	dir text not null,
-	status string not null,
-	disabled int not null
-);
-`
-
 func NewApi(dbPath string) (*Api, error) {
-	_, err := os.Stat(dbPath)
-	create := false
+	opts := &bolt.Options{Timeout: 1 * time.Second}
+	db, err := bolt.Open(dbPath, 0666, opts)
 	if err != nil {
-		if os.IsNotExist(err) {
-			// Keep track if db file doesn't exist
-			create = true
-		} else {
-			return nil, ErrInitDatabase
-		}
+		return nil, err
 	}
-	db, err := sql.Open("sqlite3", dbPath)
-	if err != nil {
-		return nil, ErrInitDatabase
-	}
-	if create {
-		// Create tables if new db file
-		_, err = db.Exec(schema)
-		if err != nil {
-			return nil, ErrInitDatabase
-		}
-	}
+	err = db.Update(func(tx *bolt.Tx) error {
+		_, err := tx.CreateBucketIfNotExists(daemonBucket)
+		return err
+	})
 	api := &Api{
 		db:          db,
 		activeMutex: &sync.RWMutex{},
@@ -79,24 +60,24 @@ func NewApi(dbPath string) (*Api, error) {
 
 // Return array of keys for running daemons
 func (api *Api) getActive() ([]string, error) {
-	db := api.db
-	rows, err := db.Query(`
-		select key
-		from Daemon
-		where disabled == 0
-	`)
+	keys := make([]string, 0)
+	err := api.db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket(daemonBucket)
+		c := b.Cursor()
+		for k, v := c.First(); k != nil; k, v = c.Next() {
+			d := &types.Daemon{}
+			err := json.Unmarshal(v, d)
+			if err != nil {
+				return err
+			}
+			if !d.Disabled {
+				keys = append(keys, d.Key)
+			}
+		}
+		return nil
+	})
 	if err != nil {
 		return nil, err
-	}
-	defer rows.Close()
-	keys := make([]string, 0)
-	for rows.Next() {
-		var key string
-		err = rows.Scan(&key)
-		if err != nil {
-			return nil, err
-		}
-		keys = append(keys, key)
 	}
 	return keys, nil
 }
@@ -116,62 +97,42 @@ func generateKey(n int) (string, error) {
 
 // Return array of all daemons
 func (api *Api) GetDaemons() ([]*types.Daemon, error) {
-	db := api.db
-	rows, err := db.Query(`
-		select key, cmd, dir, status, disabled
-		from Daemon
-	`)
+	daemons := make([]*types.Daemon, 0)
+	err := api.db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket(daemonBucket)
+		c := b.Cursor()
+		for k, v := c.First(); k != nil; k, v = c.Next() {
+			d := &types.Daemon{}
+			err := json.Unmarshal(v, d)
+			if err != nil {
+				return err
+			}
+			daemons = append(daemons, d)
+		}
+		return nil
+	})
 	if err != nil {
 		return nil, err
-	}
-	defer rows.Close()
-	daemons := make([]*types.Daemon, 0)
-	for rows.Next() {
-		var key string
-		var cmd string
-		var dir string
-		var status string
-		var disabled int
-		err = rows.Scan(&key, &cmd, &dir, &status, &disabled)
-		if err != nil {
-			return nil, err
-		}
-		daemons = append(daemons, &types.Daemon{
-			Key:      key,
-			Cmd:      cmd,
-			Dir:      dir,
-			Status:   status,
-			Disabled: disabled == 1,
-		})
 	}
 	return daemons, nil
 }
 
 // Return a single daemon (by key)
 func (api *Api) GetDaemon(key string) (*types.Daemon, error) {
-	var cmd string
-	var dir string
-	var status string
-	var disabled int
-	db := api.db
-	row := db.QueryRow(`
-		select cmd, dir, status, disabled
-		from Daemon
-		where key = ?
-	`, key)
-	err := row.Scan(&cmd, &dir, &status, &disabled)
-	if err == sql.ErrNoRows {
-		return nil, ErrNotFound
-	} else if err != nil {
+	d := &types.Daemon{}
+	err := api.db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket(daemonBucket)
+		v := b.Get([]byte(key))
+		err := json.Unmarshal(v, d)
+		if err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
 		return nil, err
 	}
-	return &types.Daemon{
-		Key:      key,
-		Cmd:      cmd,
-		Dir:      dir,
-		Status:   status,
-		Disabled: disabled == 1,
-	}, nil
+	return d, nil
 }
 
 // Create a new daemon from a key, cmd strings
@@ -179,28 +140,25 @@ func (api *Api) CreateDaemon(key, cmd, dir string) (*types.Daemon, error) {
 	if len(key) == 0 {
 		return api.createDaemonKey(cmd, dir)
 	}
-	db := api.db
-	_, err := db.Exec(`
-		insert into Daemon (key, cmd, dir, status, disabled)
-		values (?, ?, ?, "stopped", 1)
-	`, key, cmd, dir)
-	if err != nil {
-		sqliteErr, ok := err.(sqlite3.Error)
-		if !ok {
-			return nil, err
-		}
-		if sqliteErr.ExtendedCode == sqlite3.ErrConstraintPrimaryKey {
-			return nil, ErrKeyNotUnique
-		}
-		return nil, err
-	}
-	return &types.Daemon{
+	d := &types.Daemon{
 		Key:      key,
 		Cmd:      cmd,
 		Dir:      dir,
 		Status:   "stopped",
 		Disabled: true,
-	}, nil
+	}
+	err := api.db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket(daemonBucket)
+		enc, err := json.Marshal(d)
+		if err != nil {
+			return err
+		}
+		return b.Put([]byte(key), enc)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return d, nil
 }
 
 // When CreateDaemon is called with empty key, this will generate one
@@ -238,17 +196,12 @@ func (api *Api) DeleteDaemon(key string) error {
 	if exists {
 		return ErrAlreadyStarted
 	}
-	db := api.db
-	res, err := db.Exec(`
-		delete from Daemon
-		where key = ?
-	`, key)
+	err := api.db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket(daemonBucket)
+		return b.Delete([]byte(key))
+	})
 	if err != nil {
 		return err
-	}
-	rows, err := res.RowsAffected()
-	if rows == 0 {
-		return ErrNotFound
 	}
 	return nil
 }
@@ -261,21 +214,23 @@ func (api *Api) StartDaemon(key string) error {
 	if exists {
 		return ErrAlreadyStarted
 	}
-	db := api.db
-	res, err := db.Exec(`
-		update Daemon
-		set disabled = 0
-		where key = ?
-	`, key)
+	err := api.db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket(daemonBucket)
+		v := b.Get([]byte(key))
+		d := &types.Daemon{}
+		err := json.Unmarshal(v, d)
+		if err != nil {
+			return err
+		}
+		d.Disabled = false
+		enc, err := json.Marshal(d)
+		if err != nil {
+			return err
+		}
+		return b.Put([]byte(key), enc)
+	})
 	if err != nil {
 		return err
-	}
-	rows, err := res.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if rows == 0 {
-		return ErrNotFound
 	}
 	api.active[key] = newActiveDaemon(api, key)
 	return nil
