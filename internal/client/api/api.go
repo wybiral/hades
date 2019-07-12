@@ -65,16 +65,12 @@ func Add(c *cli.Context) {
 
 // Remove command removes a daemon.
 func Remove(c *cli.Context) {
-	key := c.String("key")
-	if len(key) == 0 {
-		cli.ShowCommandHelp(c, "remove")
-		return
-	}
 	args := c.Args()
-	if len(args) > 0 {
+	if len(args) != 1 {
 		cli.ShowCommandHelp(c, "remove")
 		return
 	}
+	key := args[0]
 	addr := getAddr(c)
 	client := &http.Client{}
 	req, err := http.NewRequest("DELETE", addr+"/"+key, nil)
@@ -94,16 +90,12 @@ func Remove(c *cli.Context) {
 
 // putCommand handles /{key}/{command} PUT requests for controlling daemons.
 func putCommand(c *cli.Context, command string) {
-	key := c.String("key")
-	if len(key) == 0 {
-		cli.ShowCommandHelp(c, command)
-		return
-	}
 	args := c.Args()
-	if len(args) > 0 {
+	if len(args) != 1 {
 		cli.ShowCommandHelp(c, command)
 		return
 	}
+	key := args[0]
 	addr := getAddr(c)
 	client := &http.Client{}
 	req, err := http.NewRequest("PUT", addr+"/"+key+"/"+command, nil)

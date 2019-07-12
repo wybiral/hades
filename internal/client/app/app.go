@@ -32,10 +32,6 @@ func NewApp() *cli.App {
 }
 
 func installCommands(a *cli.App) {
-	keyFlag := cli.StringFlag{
-		Name:  "key, k",
-		Usage: "Daemon key value",
-	}
 	a.Commands = []cli.Command{
 		cli.Command{
 			Name:      "list",
@@ -49,57 +45,45 @@ func installCommands(a *cli.App) {
 			Usage:     "Add daemon",
 			Action:    api.Add,
 			Flags: []cli.Flag{
-				keyFlag,
+				cli.StringFlag{
+					Name:  "key, k",
+					Usage: "Daemon key value (optional)",
+				},
 				cli.StringFlag{
 					Name:  "dir, d",
-					Usage: "Directory for daemon",
+					Usage: "Directory for daemon (optional)",
 				},
 			},
 		},
 		cli.Command{
 			Name:      "remove",
-			ArgsUsage: " ",
+			ArgsUsage: "KEY",
 			Usage:     "Remove daemon",
 			Action:    api.Remove,
-			Flags: []cli.Flag{
-				keyFlag,
-			},
 		},
 		cli.Command{
 			Name:      "start",
-			ArgsUsage: " ",
+			ArgsUsage: "KEY",
 			Usage:     "Start daemon",
 			Action:    api.Start,
-			Flags: []cli.Flag{
-				keyFlag,
-			},
 		},
 		cli.Command{
 			Name:      "stop",
-			ArgsUsage: " ",
+			ArgsUsage: "KEY",
 			Usage:     "Stop daemon",
 			Action:    api.Stop,
-			Flags: []cli.Flag{
-				keyFlag,
-			},
 		},
 		cli.Command{
 			Name:      "pause",
-			ArgsUsage: " ",
+			ArgsUsage: "KEY",
 			Usage:     "Pause daemon",
 			Action:    api.Pause,
-			Flags: []cli.Flag{
-				keyFlag,
-			},
 		},
 		cli.Command{
 			Name:      "continue",
-			ArgsUsage: " ",
+			ArgsUsage: "KEY",
 			Usage:     "Continue daemon",
 			Action:    api.Continue,
-			Flags: []cli.Flag{
-				keyFlag,
-			},
 		},
 		cli.Command{
 			Name:      "help",

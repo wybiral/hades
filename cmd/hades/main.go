@@ -7,7 +7,7 @@ import (
 	"github.com/wybiral/hades/internal/client/app"
 )
 
-const version = "0.2.0"
+const version = "0.3.0"
 
 func main() {
 	a := app.NewApp()
