@@ -1,12 +1,13 @@
 package main
 
 import (
-	"github.com/wybiral/hades/internal/client/app"
 	"log"
 	"os"
+
+	"github.com/wybiral/hades/internal/client/app"
 )
 
-const version = "0.1.0"
+const version = "0.2.0"
 
 func main() {
 	a := app.NewApp()
