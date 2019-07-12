@@ -2,11 +2,13 @@ package app
 
 import (
 	"fmt"
+	"sort"
+
 	"github.com/urfave/cli"
 	"github.com/wybiral/hades/internal/client/api"
-	"sort"
 )
 
+// NewApp returns a new client application.
 func NewApp() *cli.App {
 	a := cli.NewApp()
 	cli.HelpFlag = cli.StringFlag{Hidden: true}

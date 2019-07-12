@@ -2,12 +2,13 @@ package api
 
 import (
 	"fmt"
-	"github.com/urfave/cli"
 	"io"
 	"log"
 	"net/http"
 	"net/url"
 	"os"
+
+	"github.com/urfave/cli"
 )
 
 func getAddr(c *cli.Context) string {
@@ -16,6 +17,7 @@ func getAddr(c *cli.Context) string {
 	return fmt.Sprintf("http://%s:%d", host, port)
 }
 
+// List command returns a list of registered daemons.
 func List(c *cli.Context) {
 	addr := getAddr(c)
 	res, err := http.Get(addr)
@@ -29,6 +31,7 @@ func List(c *cli.Context) {
 	}
 }
 
+// Add command adds a daemon.
 func Add(c *cli.Context) {
 	args := c.Args()
 	if len(args) != 1 {
@@ -60,6 +63,7 @@ func Add(c *cli.Context) {
 	}
 }
 
+// Remove command removes a daemon.
 func Remove(c *cli.Context) {
 	key := c.String("key")
 	if len(key) == 0 {
@@ -88,7 +92,8 @@ func Remove(c *cli.Context) {
 	}
 }
 
-func simpleCommand(c *cli.Context, command string) {
+// putCommand handles /{key}/{command} PUT requests for controlling daemons.
+func putCommand(c *cli.Context, command string) {
 	key := c.String("key")
 	if len(key) == 0 {
 		cli.ShowCommandHelp(c, command)
@@ -100,7 +105,12 @@ func simpleCommand(c *cli.Context, command string) {
 		return
 	}
 	addr := getAddr(c)
-	res, err := http.Get(addr + "/" + key + "/" + command)
+	client := &http.Client{}
+	req, err := http.NewRequest("PUT", addr+"/"+key+"/"+command, nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+	res, err := client.Do(req)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -111,18 +121,22 @@ func simpleCommand(c *cli.Context, command string) {
 	}
 }
 
+// Start command starts a daemon.
 func Start(c *cli.Context) {
-	simpleCommand(c, "start")
+	putCommand(c, "start")
 }
 
+// Stop command stops a daemon.
 func Stop(c *cli.Context) {
-	simpleCommand(c, "stop")
+	putCommand(c, "stop")
 }
 
+// Pause command pauses a daemon.
 func Pause(c *cli.Context) {
-	simpleCommand(c, "pause")
+	putCommand(c, "pause")
 }
 
+// Continue command continues a paused daemon.
 func Continue(c *cli.Context) {
-	simpleCommand(c, "continue")
+	putCommand(c, "continue")
 }

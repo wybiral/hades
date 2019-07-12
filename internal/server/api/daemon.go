@@ -15,10 +15,12 @@ import (
 	"github.com/wybiral/hades/pkg/types"
 )
 
+// time to wait between restarts of failed daemon.
 const timeout = time.Second * 10
 
+// activeDaemon represents a running daemon.
 type activeDaemon struct {
-	api       *Api
+	api       *API
 	key       string
 	pidMutex  *sync.Mutex
 	pid       int
@@ -26,7 +28,8 @@ type activeDaemon struct {
 	exit      bool
 }
 
-func newActiveDaemon(api *Api, key string) *activeDaemon {
+// newActiveDaemon returns new activeDaemon, starting the process.
+func newActiveDaemon(api *API, key string) *activeDaemon {
 	ad := &activeDaemon{
 		api:       api,
 		key:       key,
@@ -40,6 +43,7 @@ func newActiveDaemon(api *Api, key string) *activeDaemon {
 	return ad
 }
 
+// setStatus updates daemon status in DB.
 func (ad *activeDaemon) setStatus(status string) {
 	ad.api.db.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket(daemonBucket)
@@ -58,6 +62,7 @@ func (ad *activeDaemon) setStatus(status string) {
 	})
 }
 
+// cleanup called after daemon is stopped to update DB and remove from active.
 func (ad *activeDaemon) cleanup() {
 	api := ad.api
 	api.activeMutex.Lock()
@@ -81,6 +86,7 @@ func (ad *activeDaemon) cleanup() {
 	})
 }
 
+// start starts a daemon process and schedules cleanup when it's stopped.
 func (ad *activeDaemon) start() {
 	defer ad.cleanup()
 	api := ad.api
@@ -120,6 +126,7 @@ func (ad *activeDaemon) start() {
 	}
 }
 
+// sigkill sends KILL signal to activeDaemon and updates status.
 func (ad *activeDaemon) sigkill() error {
 	ad.exitMutex.Lock()
 	defer ad.exitMutex.Unlock()
@@ -136,6 +143,7 @@ func (ad *activeDaemon) sigkill() error {
 	return nil
 }
 
+// sigstop sends STOP signal to activeDaemon and updates status.
 func (ad *activeDaemon) sigstop() error {
 	err := syscall.Kill(-ad.pid, syscall.SIGSTOP)
 	if err != nil {
@@ -145,6 +153,7 @@ func (ad *activeDaemon) sigstop() error {
 	return nil
 }
 
+// sigcont sends CONT signal to activeDaemon and updates status.
 func (ad *activeDaemon) sigcont() error {
 	err := syscall.Kill(-ad.pid, syscall.SIGCONT)
 	if err != nil {

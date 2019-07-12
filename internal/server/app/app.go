@@ -1,17 +1,20 @@
 package app
 
 import (
+	"net/http"
+
 	"github.com/gorilla/mux"
 	"github.com/wybiral/hades/internal/server/api"
-	"net/http"
 )
 
+// App represents main server application.
 type App struct {
-	api *api.Api
+	api *api.API
 }
 
+// NewApp returns new App from dbPath.
 func NewApp(dbPath string) (*App, error) {
-	api, err := api.NewApi(dbPath)
+	api, err := api.NewAPI(dbPath)
 	if err != nil {
 		return nil, err
 	}
@@ -21,20 +24,21 @@ func NewApp(dbPath string) (*App, error) {
 	return app, nil
 }
 
+// ListenAndServe starts HTTP listener for App at addr.
 func (a *App) ListenAndServe(addr string) error {
 	r := mux.NewRouter().StrictSlash(true)
 	r.HandleFunc("/", a.indexGetHandler).Methods("GET")
 	r.HandleFunc("/", a.indexPostHandler).Methods("POST")
 	r.HandleFunc("/{key}", a.daemonGetHandler).Methods("GET")
 	r.HandleFunc("/{key}", a.daemonDeleteHandler).Methods("DELETE")
-	r.HandleFunc("/{key}/start", a.daemonStartHandler)
-	r.HandleFunc("/{key}/stop", a.daemonStopHandler)
-	r.HandleFunc("/{key}/pause", a.daemonPauseHandler)
-	r.HandleFunc("/{key}/continue", a.daemonContinueHandler)
+	r.HandleFunc("/{key}/start", a.daemonStartHandler).Methods("PUT")
+	r.HandleFunc("/{key}/stop", a.daemonStopHandler).Methods("PUT")
+	r.HandleFunc("/{key}/pause", a.daemonPauseHandler).Methods("PUT")
+	r.HandleFunc("/{key}/continue", a.daemonContinueHandler).Methods("PUT")
 	return http.ListenAndServe(addr, r)
 }
 
-// Respond with JSON list of daemons
+// indexGetHandler responds with JSON list of daemons.
 func (a *App) indexGetHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	daemons, err := a.api.GetDaemons()
@@ -46,7 +50,7 @@ func (a *App) indexGetHandler(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, daemons)
 }
 
-// Add new daemon from cmd string
+// indexPostHandler adds new daemon from key, cmd, dir.
 func (a *App) indexPostHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	r.ParseForm()
@@ -71,7 +75,7 @@ func (a *App) indexPostHandler(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, daemon)
 }
 
-// Respond with JSON object for one daemon
+// daemonGetHandler responds with JSON object for one daemon.
 func (a *App) daemonGetHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	vars := mux.Vars(r)
@@ -89,7 +93,7 @@ func (a *App) daemonGetHandler(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, daemon)
 }
 
-// Delete a daemon
+// daemonDeleteHandler deletes a daemon.
 func (a *App) daemonDeleteHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	vars := mux.Vars(r)
@@ -111,7 +115,7 @@ func (a *App) daemonDeleteHandler(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, struct{}{})
 }
 
-// Start one daemon
+// daemonStartHandler starts one daemon.
 func (a *App) daemonStartHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	vars := mux.Vars(r)
@@ -139,7 +143,7 @@ func (a *App) daemonStartHandler(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, daemon)
 }
 
-// Stop one daemon
+// daemonStopHandler stops one daemon.
 func (a *App) daemonStopHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	vars := mux.Vars(r)
@@ -163,7 +167,7 @@ func (a *App) daemonStopHandler(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, daemon)
 }
 
-// Pause one daemon
+// daemonPauseHandler pauses one daemon.
 func (a *App) daemonPauseHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	vars := mux.Vars(r)
@@ -187,7 +191,7 @@ func (a *App) daemonPauseHandler(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, daemon)
 }
 
-// Continue one daemon
+// daemonContinueHandler continues one paused daemon.
 func (a *App) daemonContinueHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	vars := mux.Vars(r)

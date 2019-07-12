@@ -3,8 +3,9 @@ package main
 import (
 	"flag"
 	"fmt"
-	"github.com/wybiral/hades/internal/server/app"
 	"log"
+
+	"github.com/wybiral/hades/internal/server/app"
 )
 
 func main() {

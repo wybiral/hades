@@ -1,5 +1,6 @@
 package types
 
+// Daemon represents a single daemon process.
 type Daemon struct {
 	Key      string `json:"key"`
 	Cmd      string `json:"cmd"`

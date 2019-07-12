@@ -13,33 +13,42 @@ import (
 )
 
 var (
-	ErrNotFound       = errors.New("api: not found")
-	ErrInitDatabase   = errors.New("api: error initializing db")
-	ErrKeyGeneration  = errors.New("api: unable to generate random key")
-	ErrKeyNotUnique   = errors.New("api: key not unique")
+	// ErrNotFound returned when daemon doesn't exist in DB.
+	ErrNotFound = errors.New("api: not found")
+	// ErrInitDatabase returned from errors initializing DB.
+	ErrInitDatabase = errors.New("api: error initializing db")
+	// ErrKeyNotUnique returned when daemon key isn't unique.
+	ErrKeyNotUnique = errors.New("api: key not unique")
+	// ErrAlreadyStarted returned when starting daemon already started.
 	ErrAlreadyStarted = errors.New("api: already started")
-	ErrNotStarted     = errors.New("api: not started")
+	// ErrNotStarted returned when stopping daemon not started.
+	ErrNotStarted = errors.New("api: not started")
 )
 
 var daemonBucket = []byte("daemons")
 
-type Api struct {
+// API represents server-side API.
+type API struct {
 	db          *bolt.DB
 	activeMutex *sync.RWMutex
 	active      map[string]*activeDaemon
 }
 
-func NewApi(dbPath string) (*Api, error) {
+// NewAPI returns new server Api from dbPath.
+func NewAPI(dbPath string) (*API, error) {
 	opts := &bolt.Options{Timeout: 1 * time.Second}
 	db, err := bolt.Open(dbPath, 0666, opts)
 	if err != nil {
-		return nil, err
+		return nil, ErrInitDatabase
 	}
 	err = db.Update(func(tx *bolt.Tx) error {
 		_, err := tx.CreateBucketIfNotExists(daemonBucket)
 		return err
 	})
-	api := &Api{
+	if err != nil {
+		return nil, ErrInitDatabase
+	}
+	api := &API{
 		db:          db,
 		activeMutex: &sync.RWMutex{},
 		active:      make(map[string]*activeDaemon),
@@ -59,7 +68,7 @@ func NewApi(dbPath string) (*Api, error) {
 }
 
 // Return array of keys for running daemons
-func (api *Api) getActive() ([]string, error) {
+func (api *API) getActive() ([]string, error) {
 	keys := make([]string, 0)
 	err := api.db.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket(daemonBucket)
@@ -85,18 +94,15 @@ func (api *Api) getActive() ([]string, error) {
 // Create a new daemon key
 func generateKey(n int) (string, error) {
 	data := make([]byte, n)
-	_n, err := rand.Read(data)
+	_, err := rand.Read(data)
 	if err != nil {
-		return "", ErrKeyGeneration
-	}
-	if _n != n {
-		return "", ErrKeyGeneration
+		return "", err
 	}
 	return base64.RawURLEncoding.EncodeToString(data), nil
 }
 
-// Return array of all daemons
-func (api *Api) GetDaemons() ([]*types.Daemon, error) {
+// GetDaemons returns array of all daemons.
+func (api *API) GetDaemons() ([]*types.Daemon, error) {
 	daemons := make([]*types.Daemon, 0)
 	err := api.db.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket(daemonBucket)
@@ -117,8 +123,8 @@ func (api *Api) GetDaemons() ([]*types.Daemon, error) {
 	return daemons, nil
 }
 
-// Return a single daemon (by key)
-func (api *Api) GetDaemon(key string) (*types.Daemon, error) {
+// GetDaemon returns a single daemon by key.
+func (api *API) GetDaemon(key string) (*types.Daemon, error) {
 	d := &types.Daemon{}
 	err := api.db.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket(daemonBucket)
@@ -135,8 +141,8 @@ func (api *Api) GetDaemon(key string) (*types.Daemon, error) {
 	return d, nil
 }
 
-// Create a new daemon from a key, cmd strings
-func (api *Api) CreateDaemon(key, cmd, dir string) (*types.Daemon, error) {
+// CreateDaemon creates a new daemon from key, cmd, dir.
+func (api *API) CreateDaemon(key, cmd, dir string) (*types.Daemon, error) {
 	if len(key) == 0 {
 		return api.createDaemonKey(cmd, dir)
 	}
@@ -161,9 +167,10 @@ func (api *Api) CreateDaemon(key, cmd, dir string) (*types.Daemon, error) {
 	return d, nil
 }
 
-// When CreateDaemon is called with empty key, this will generate one
-// XXX: Find a better key generation scheme
-func (api *Api) createDaemonKey(cmd, dir string) (*types.Daemon, error) {
+// When CreateDaemon is called with empty key, this will generate one by
+// generating random base64 strings, checking for collisions, and growing
+// gradually if too many collisions are found.
+func (api *API) createDaemonKey(cmd, dir string) (*types.Daemon, error) {
 	n := 3
 	fails := 0
 	for {
@@ -174,11 +181,11 @@ func (api *Api) createDaemonKey(cmd, dir string) (*types.Daemon, error) {
 		daemon, err := api.CreateDaemon(key, cmd, dir)
 		if err == ErrKeyNotUnique {
 			// Key isn't unique, try again
-			fails += 1
+			fails++
 			if fails > 4 {
 				// Too many fails, increase key size
 				fails = 0
-				n += 1
+				n++
 			}
 			continue
 		}
@@ -189,7 +196,8 @@ func (api *Api) createDaemonKey(cmd, dir string) (*types.Daemon, error) {
 	}
 }
 
-func (api *Api) DeleteDaemon(key string) error {
+// DeleteDaemon deletes a daemon.
+func (api *API) DeleteDaemon(key string) error {
 	api.activeMutex.Lock()
 	defer api.activeMutex.Unlock()
 	_, exists := api.active[key]
@@ -206,8 +214,8 @@ func (api *Api) DeleteDaemon(key string) error {
 	return nil
 }
 
-// Start daemon (by key)
-func (api *Api) StartDaemon(key string) error {
+// StartDaemon starts a daemon.
+func (api *API) StartDaemon(key string) error {
 	api.activeMutex.Lock()
 	defer api.activeMutex.Unlock()
 	_, exists := api.active[key]
@@ -236,7 +244,8 @@ func (api *Api) StartDaemon(key string) error {
 	return nil
 }
 
-func (api *Api) getActiveDaemon(key string) (*activeDaemon, error) {
+// getActiveDaemon returns an active daemon (if exists).
+func (api *API) getActiveDaemon(key string) (*activeDaemon, error) {
 	api.activeMutex.RLock()
 	defer api.activeMutex.RUnlock()
 	ad, exists := api.active[key]
@@ -246,7 +255,8 @@ func (api *Api) getActiveDaemon(key string) (*activeDaemon, error) {
 	return ad, nil
 }
 
-func (api *Api) StopDaemon(key string) error {
+// StopDaemon sends "KILL" signal to running daemon.
+func (api *API) StopDaemon(key string) error {
 	ad, err := api.getActiveDaemon(key)
 	if err != nil {
 		return err
@@ -255,7 +265,8 @@ func (api *Api) StopDaemon(key string) error {
 	return nil
 }
 
-func (api *Api) PauseDaemon(key string) error {
+// PauseDaemon sends a "STOP" signal to running daemon to pause it.
+func (api *API) PauseDaemon(key string) error {
 	ad, err := api.getActiveDaemon(key)
 	if err != nil {
 		return err
@@ -264,7 +275,8 @@ func (api *Api) PauseDaemon(key string) error {
 	return nil
 }
 
-func (api *Api) ContinueDaemon(key string) error {
+// ContinueDaemon sends a "CONT" signal to a paused daemon to unpause it.
+func (api *API) ContinueDaemon(key string) error {
 	ad, err := api.getActiveDaemon(key)
 	if err != nil {
 		return err
