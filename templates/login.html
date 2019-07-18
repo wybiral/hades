@@ -1,0 +1,30 @@
+<html>
+<head>
+    <title>hades</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="shortcut icon" type="image/x-icon" href="/static/favicon.ico">
+    <link rel="stylesheet" type="text/css" href="/static/theme.css">
+</head>
+<body>
+    <header>
+        <a class="logo" href="/">hades</a>
+        <span class="spacer"></span>
+    </header>
+    <main>
+        <h1>Login</h1>
+        {{ range $e := .Errors }}
+        <div class="error">{{ . }}</div>
+        {{ end }}
+        <form method="post" action="/login">
+            <dl>
+                <dt>Password</dt>
+                <dd><input name="password" type="password" autofocus></dd>
+            </dl>
+            <div>
+                <button class="button">Login</button>
+            </div>
+        </form>
+    </main>
+</body>
+</html>

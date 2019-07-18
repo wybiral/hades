@@ -1,0 +1,37 @@
+{{ $token := .Token }}
+<html>
+<head>
+    <title>hades</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="shortcut icon" type="image/x-icon" href="/static/favicon.ico">
+    <link rel="stylesheet" type="text/css" href="/static/theme.css">
+</head>
+<body>
+    <header>
+        <a class="logo" href="/">hades</a>
+        <span class="spacer"></span>
+        <form method="post" action="/logout">
+            <input name="token" type="hidden" value="{{ $token }}">
+            <button>logout</button>
+        </form>
+    </header>
+    <main>
+        <h1>Add daemon</h1>
+        <form method="post" action="/add">
+            <input name="token" type="hidden" value="{{ $token }}">
+            <dl>
+                <dt>Directory</dt>
+                <dd><input name="dir" type="text" value="~/"></dd>
+            </dl>
+            <dl>
+                <dt>Command</dt>
+                <dd><input name="cmd" type="text"></dd>
+            </dl>
+            <div>
+                <button class="button">+ Add</button>
+            </div>
+        </form>
+    </main>
+</body>
+</html>

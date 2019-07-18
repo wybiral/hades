@@ -1,0 +1,72 @@
+{{ $token := .Token }}
+<html>
+<head>
+    <title>hades</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="shortcut icon" type="image/x-icon" href="/static/favicon.ico">
+    <link rel="stylesheet" type="text/css" href="/static/theme.css">
+</head>
+<body>
+    <header>
+        <a class="logo" href="/">hades</a>
+        <span class="spacer"></span>
+        <form method="post" action="/logout">
+            <input name="token" type="hidden" value="{{ $token }}">
+            <button>logout</button>
+        </form>
+    </header>
+    <main>
+        <h1>Daemons</h1>
+        {{ range $e := .Errors }}
+        <div class="error">{{ . }}</div>
+        {{ end }}
+        <div class="daemons">
+        {{ range $d := .Daemons }}
+            <div class="{{ $d.Status }} daemon">
+                <div class="line">
+                    <strong>Cmd: </strong>
+                    <span title="{{ $d.Cmd }}">{{ $d.Cmd }}</span>
+                </div>
+                <div class="line">
+                    <strong>Dir: </strong>
+                    <span title="{{ $d.Dir }}">{{ $d.Dir }}</span>
+                </div>
+                <div class="line">
+                    <strong>Status: </strong>
+                    <span title="{{ $d.Status }}">{{ $d.Status }}</span>
+                </div>
+                <div class="line">
+                    <strong>Actions: </strong>
+                    <form method="post" action="/{{ $d.ID }}/action">
+                        <input name="token" type="hidden" value="{{ $token }}">
+                    {{ if eq $d.Status "running" }}
+                        <button name="action" value="pause" class="action pause">pause</button>
+                        <button name="action" value="stop" class="action stop">stop</button>
+                    {{ end }}
+                    {{ if eq $d.Status "paused" }}
+                        <button name="action" value="resume" class="action resume">resume</button>
+                        <button name="action" value="stop" class="action stop">stop</button>
+                    {{ end }}
+                    {{ if eq $d.Status "stopped" }}
+                        <button name="action" value="start" class="action start">start</button>
+                        <button name="action" value="remove" class="action remove">remove</button>
+                    {{ end }}
+                    {{ if eq $d.Status "stopping" }}
+                        <button name="action" value="start" class="action start">start</button>
+                        <button name="action" value="remove" class="action remove">remove</button>
+                    {{ end }}
+                    {{ if eq $d.Status "failed" }}
+                        <button name="action" value="stop" class="action stop">stop</button>
+                    {{ end }}
+                    </form>
+                </div>
+            </div>
+        {{ end }}
+        </div>
+        <div>
+            <a class="button" href="/add">+ Add</a>
+        </div>
+    </main>
+</body>
+</html>

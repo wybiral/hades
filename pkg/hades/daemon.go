@@ -1,4 +1,4 @@
-package api
+package hades
 
 import (
 	"encoding/json"
@@ -6,22 +6,33 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"os/user"
+	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
 
 	"github.com/boltdb/bolt"
 	"github.com/google/shlex"
-	"github.com/wybiral/hades/pkg/types"
 )
 
 // time to wait between restarts of failed daemon.
 const timeout = time.Second * 10
 
+// Daemon represents a single daemon process.
+type Daemon struct {
+	ID       uint64 `json:"id"`
+	Cmd      string `json:"cmd"`
+	Dir      string `json:"dir,omitempty"`
+	Status   string `json:"status"`
+	Disabled bool   `json:"disabled"`
+}
+
 // activeDaemon represents a running daemon.
 type activeDaemon struct {
-	api       *API
-	key       string
+	h         *Hades
+	id        uint64
 	pidMutex  *sync.Mutex
 	pid       int
 	exitMutex *sync.Mutex
@@ -29,10 +40,10 @@ type activeDaemon struct {
 }
 
 // newActiveDaemon returns new activeDaemon, starting the process.
-func newActiveDaemon(api *API, key string) *activeDaemon {
+func newActiveDaemon(h *Hades, id uint64) *activeDaemon {
 	ad := &activeDaemon{
-		api:       api,
-		key:       key,
+		h:         h,
+		id:        id,
 		pidMutex:  &sync.Mutex{},
 		pid:       0,
 		exitMutex: &sync.Mutex{},
@@ -45,10 +56,10 @@ func newActiveDaemon(api *API, key string) *activeDaemon {
 
 // setStatus updates daemon status in DB.
 func (ad *activeDaemon) setStatus(status string) {
-	ad.api.db.Update(func(tx *bolt.Tx) error {
+	ad.h.db.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket(daemonBucket)
-		v := b.Get([]byte(ad.key))
-		d := &types.Daemon{}
+		v := b.Get(itob(ad.id))
+		d := &Daemon{}
 		err := json.Unmarshal(v, d)
 		if err != nil {
 			return err
@@ -58,20 +69,20 @@ func (ad *activeDaemon) setStatus(status string) {
 		if err != nil {
 			return err
 		}
-		return b.Put([]byte(ad.key), enc)
+		return b.Put(itob(ad.id), enc)
 	})
 }
 
 // cleanup called after daemon is stopped to update DB and remove from active.
 func (ad *activeDaemon) cleanup() {
-	api := ad.api
-	api.activeMutex.Lock()
-	defer api.activeMutex.Unlock()
-	delete(api.active, ad.key)
-	ad.api.db.Update(func(tx *bolt.Tx) error {
+	h := ad.h
+	h.activeMutex.Lock()
+	defer h.activeMutex.Unlock()
+	delete(h.active, ad.id)
+	h.db.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket(daemonBucket)
-		v := b.Get([]byte(ad.key))
-		d := &types.Daemon{}
+		v := b.Get(itob(ad.id))
+		d := &Daemon{}
 		err := json.Unmarshal(v, d)
 		if err != nil {
 			return err
@@ -82,20 +93,37 @@ func (ad *activeDaemon) cleanup() {
 		if err != nil {
 			return err
 		}
-		return b.Put([]byte(ad.key), enc)
+		return b.Put(itob(ad.id), enc)
 	})
 }
 
 // start starts a daemon process and schedules cleanup when it's stopped.
 func (ad *activeDaemon) start() {
 	defer ad.cleanup()
-	api := ad.api
-	key := ad.key
-	d, err := api.GetDaemon(key)
+	h := ad.h
+	id := ad.id
+	d, err := h.Get(id)
 	if err != nil {
 		return
 	}
 	parts, err := shlex.Split(d.Cmd)
+	if err != nil {
+		return
+	}
+	if len(parts) == 0 {
+		return
+	}
+	dir := d.Dir
+	if strings.HasPrefix(dir, "~") {
+		// expand relative home paths
+		usr, err := user.Current()
+		if err != nil {
+			return
+		}
+		dir = filepath.Join(usr.HomeDir, dir[1:])
+	}
+	// make paths absolute
+	dir, err = filepath.Abs(dir)
 	if err != nil {
 		return
 	}
@@ -108,11 +136,12 @@ func (ad *activeDaemon) start() {
 		}
 		c := exec.Command(parts[0], parts[1:]...)
 		c.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-		c.Dir = d.Dir
+		c.Dir = dir
 		c.Env = os.Environ()
 		err := c.Start()
 		if err != nil {
-			log.Println(ad.key+":", err)
+			ad.setStatus("failed")
+			log.Printf("%d: %s\n", ad.id, err)
 			time.Sleep(timeout)
 			continue
 		}
@@ -123,6 +152,7 @@ func (ad *activeDaemon) start() {
 		if err != nil {
 			continue
 		}
+		ad.setStatus("running")
 	}
 }
 

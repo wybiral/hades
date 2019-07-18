@@ -1,0 +1,158 @@
+/* normalize */
+* {
+    background: inherit;
+    border: none;
+    box-sizing: border-box;
+    color: inherit;
+    font-size: inherit;
+    font-weight: inherit;
+    margin: 0;
+    outline: none;
+    padding: 0;
+    text-decoration: none;
+}
+
+.button {
+    background: #676867;
+    color: #1e1e1e;
+    cursor: pointer;
+    font-weight: 700;
+    padding: 0.5em 1em;
+}
+.button:hover {
+    box-shadow: 0 3px 7px 0 rgba(0, 0, 0, 0.2);
+}
+.button:focus {
+    outline: 1px solid #fd971f;
+}
+
+form {
+    display: inline;
+}
+
+input {
+    background: #383a3e;
+    padding: 0.5em 0.5em;
+    width: 100%;
+}
+input:focus {
+    box-shadow: 0 3px 7px 0 rgba(0, 0, 0, 0.2);
+    outline: 1px solid #fd971f;
+}
+
+strong {
+    font-weight: 700;
+}
+
+body {
+    background: #1e1e1e;
+    color: #c5c8c6;
+    font-family: Arial, sans-serif;
+    font-size: 16px;
+    font-weight: 400;
+    padding-bottom: 10px;
+}
+
+/* header bar */
+header {
+    align-items: center;
+    background: #171717;
+    border-bottom: 1px solid #272727;
+    display: flex;
+    flex-wrap: nowrap;
+    padding: 0.25em 0.75em;
+}
+header .logo {
+    color: #fd971f;
+    font-size: 24px;
+    text-shadow: -2px 2px 3px rgba(0, 0, 0, 0.7);
+}
+header .spacer {
+    display: flex;
+    flex-basis: auto;
+    flex-grow: 1;
+    flex-shrink: 1;
+}
+header button {
+    cursor: pointer;
+}
+
+/* main content area */
+main {
+    margin: 1em auto;
+    max-width: 640px;
+}
+main > h1 {
+    border-bottom: 1px solid #272727;
+    font-size: 24px;
+    margin-bottom: 1em;
+    padding: 0.25em 0em;
+}
+main div.error {
+    color: #f92672;
+}
+main dl {
+    margin: 1.5em 0em;
+}
+main dl > dt {
+    font-weight: 700;
+    margin-bottom: 0.5em;
+}
+
+/* daemons container */
+main div.daemons {
+    margin: 1.5em 0em;
+}
+
+/* daemon */
+main div.daemon {
+    background: #282a2e;
+    box-shadow: 0 3px 7px 0 rgba(0, 0, 0, 0.2);
+    padding: 0.75em 0.75em;
+}
+main div.daemon + div.daemon {
+    margin-top: 0.5em;
+}
+
+/* daemon status styles */
+main div.daemon.failed {
+    border-left: 5px solid #676867;
+}
+main div.daemon.paused {
+    border-left: 5px solid #66d9ef;
+}
+main div.daemon.running {
+    border-left: 5px solid #a6e22e;
+}
+main div.daemon.stopped,
+main div.daemon.stopping {
+    border-left: 5px solid #f92672;
+}
+
+/* daemon detail lines */
+main div.line {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+main div.line > strong {
+    margin-right: 0.25em;
+}
+main div.line + div.line {
+    margin-top: 0.25em;
+}
+
+/* daemon action buttons */
+.action {
+    cursor: pointer;
+    font-weight: 700;
+    text-shadow: 0 1px 1px rgba(0, 0, 0, 0.7);
+}
+.action + .action {
+    margin-left: 0.25em;
+}
+.action.pause  {color: #66d9ef}
+.action.remove {color: #ae81ff}
+.action.resume {color: #a6e22e}
+.action.start  {color: #a6e22e}
+.action.stop   {color: #f92672}
