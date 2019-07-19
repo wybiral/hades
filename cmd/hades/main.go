@@ -1,3 +1,4 @@
+// Package main implements the main hades server command line application.
 package main
 
 import (
@@ -49,6 +50,7 @@ func main() {
 	}
 }
 
+// ensures that password hash exists in db or generates one
 func setupPassword(a *app.App) error {
 	found := false
 	err := a.DB.View(func(tx *bolt.Tx) error {
