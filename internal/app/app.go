@@ -49,6 +49,9 @@ func NewApp(host string, port int) (*App, error) {
 	a.Sessions = s
 	// setup Hades
 	h, err := hades.NewHades(db)
+	if err != nil {
+		return nil, err
+	}
 	a.Hades = h
 	// setup Listener
 	ln, err := newListener(a)
