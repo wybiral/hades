@@ -11,6 +11,7 @@ import (
 	"strconv"
 
 	"github.com/boltdb/bolt"
+	"github.com/gobuffalo/packr"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/sessions"
 	"github.com/wybiral/hades/pkg/hades"
@@ -60,14 +61,13 @@ func NewApp(host string, port int) (*App, error) {
 	}
 	a.Listener = ln
 	// setup Templates
-	a.Templates = template.Must(template.ParseGlob("templates/*"))
+	t, err := newTemplates("../../templates")
+	a.Templates = t
 	// setup Router
 	r := mux.NewRouter().StrictSlash(true)
 	// static file handler
-	fsHandler := http.StripPrefix(
-		"/static/",
-		http.FileServer(http.Dir("./static/")),
-	)
+	sbox := packr.NewBox("../../static")
+	fsHandler := http.StripPrefix("/static/", http.FileServer(sbox))
 	r.PathPrefix("/static/").Handler(fsHandler).Methods("GET")
 	// application routes
 	r.HandleFunc("/", a.getIndexHandler).Methods("GET")

@@ -8,6 +8,27 @@
   version = "v1.3.1"
 
 [[projects]]
+  name = "github.com/gobuffalo/envy"
+  packages = ["."]
+  revision = "909ea676d4c90832fefbf55a5a4fb04d8bef8931"
+  version = "v1.7.1"
+
+[[projects]]
+  name = "github.com/gobuffalo/packd"
+  packages = [
+    ".",
+    "internal/takeon/github.com/markbates/errx"
+  ]
+  revision = "54ea459691466cfb630ccc276723fe3963f3e9d5"
+  version = "v0.3.0"
+
+[[projects]]
+  name = "github.com/gobuffalo/packr"
+  packages = ["."]
+  revision = "b6d537d853119bfd3a31fe49edf53418ce3a00e9"
+  version = "v2.6.0"
+
+[[projects]]
   branch = "master"
   name = "github.com/google/shlex"
   packages = ["."]
@@ -32,6 +53,22 @@
   version = "v1.2.0"
 
 [[projects]]
+  name = "github.com/joho/godotenv"
+  packages = ["."]
+  revision = "23d116af351c84513e1946b527c88823e476be13"
+  version = "v1.3.0"
+
+[[projects]]
+  name = "github.com/rogpeppe/go-internal"
+  packages = [
+    "modfile",
+    "module",
+    "semver"
+  ]
+  revision = "18d060b6b4f28350cb92f79d63b2f558e634dcea"
+  version = "v1.3.2"
+
+[[projects]]
   branch = "master"
   name = "golang.org/x/crypto"
   packages = [
@@ -53,6 +90,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "e9059e00e0ef32fa33817fb3963b0743de15765a16bc5c592e85c48a9e4c40ec"
+  inputs-digest = "8b468bfebac3b554c644ba361c07531e6990c69f3de0b61083dbce8f60529aee"
   solver-name = "gps-cdcl"
   solver-version = 1
